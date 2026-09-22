@@ -81,6 +81,29 @@ a lost channel is the same search restricted to one PRN.
 **4. Static flowgraphs vs dynamic satellites.** The bank of 12 idle channels. A channel with
 nothing assigned consumes and discards its input cheaply (returns immediately).
 
+## Gate 1 result (2026-09-22): the Channel goes to C++
+
+Measured, eight synthetic satellites, `gpsrx.channel` Python blocks in the GNU Radio scheduler,
+one thread per block, on a desktop:
+
+| channels | wall for 1 s of samples | real-time factor |
+|---|---|---|
+| 1 | 0.32 s | 3.1x |
+| 2 | 0.89 s | 1.1x |
+| 4 | 2.49 s | 0.40x |
+| 8 | 5.90 s | 0.17x |
+
+One channel is fast; eight are slower than eight times one. The per-period NumPy operations
+(a 2048-point complex multiply, three correlations) are ~10 us each, so the interpreter lock
+changes hands thousands of times a second between eight threads and the handoff costs more
+than the arithmetic. Batching periods per `work()` call did not help (the upstream buffer is
+8191 items, four periods, and is not settable from Python); caching the NCO ramp did not help
+(the loop moves the Doppler every period while pulling in). The engine alone, single-threaded,
+is 0.75x. **So: the tracking channel is the one C++ block**, built on the Ubuntu rig; the
+Python engine in `track.py` stays as the readable reference and the block's test oracle
+(gate 0 for the C++ block = its prompts equal the Python engine's on the synthetic sky).
+Everything else - acquisition, nav decode, PVT, panel - is low-rate and stays Python.
+
 ## Gates (in order)
 
 0. **Correlator identity:** the Channel's prompt output on a capture equals numpy-gps's

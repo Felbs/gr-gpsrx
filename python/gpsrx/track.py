@@ -63,7 +63,7 @@ class ChannelState:
 
 class Channel:
     """Track one PRN through a stream, one code period per step."""
-    RAMP_TOL = 0.5          # Hz: rebuild the NCO ramp when the Doppler estimate moves this much
+    RAMP_TOL = 5.0          # Hz: rebuild the NCO ramp when the Doppler estimate moves this much (5 Hz over 1 ms = 1.8 deg, under the loop noise)
 
     def __init__(self, prn, fs, doppler_hz, code_phase_samples, pll_bw=18.0, dll_bw=2.0, spacing=0.5,
                  open_loop=False):

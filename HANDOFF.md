@@ -22,3 +22,9 @@ over ONE noise floor (`synth.sky`), never sum single-bird signals (that sums the
 Throughput: 8 locked channels 0.75x real time (exp() is 109 us of a 170 us period; the NCO ramp is now cached
 and rebuilt only when Doppler moves > 0.5 Hz, which did not help because the dots/multiplies are the rest).
 Next: decide Python vs C++ Channel (gate 1), then Acquisition block + Channel Bank + replay flowgraph.
+- `python/gpsrx/channel.py` = the Channel as a Python block (assign/obs/status msg ports, lost detection,
+  absolute-sample stamping) + `qa_channel.py` (3 tests pass). ★ GATE 1 MEASURED: 1 ch 3.1x, 8 ch 0.17x -
+  Python threads contend on the GIL; batching and ramp caching did not help. DECISION: Channel -> C++ on
+  the Ubuntu rig (this PC has no compiler). The Python block stays as the reference for the C++ one.
+  GR gateway traps: `set_min_input_buffer` is not exposed to Python; `set_output_multiple(n)` means a
+  short batch is an ERROR (pad or return 0); a Python source must be kept referenced (`tb.keep`).

@@ -1,23 +1,15 @@
-#
-# Copyright 2008,2009 Free Software Foundation, Inc.
-#
 # SPDX-License-Identifier: GPL-3.0-or-later
-#
-
-# The presence of this file turns this directory into a Python package
-
 '''
-This is the GNU Radio GPSRX module. Place your Python package
-description here (python/__init__.py).
+gr-gpsrx: a GPS L1 C/A receiver made of GNU Radio blocks. The one you can read.
 '''
-import os
-
-# import pybind11 generated symbols into the gpsrx namespace
 try:
-    # this might fail if the module is python-only
-    from .gpsrx_python import *
+    from .gpsrx_python import *          # no compiled bindings yet (Python phase)
 except ModuleNotFoundError:
     pass
 
-# import any pure python here
-#
+from . import cacode, synth, track     # the engine: importable without GNU Radio
+
+try:
+    from .channel import channel
+except ImportError:                    # gnuradio not installed: the engine still works
+    pass
