@@ -153,6 +153,7 @@ blocks:
     fix_file: fix_file
     hold: 'False'
     engine: '''cpp'''
+    eph_file: '""'
     comment: live needs the C++ Channel (util/build_win.cmd, or cmake on Linux)
   states:
     bus_sink: false

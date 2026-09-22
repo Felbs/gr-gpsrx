@@ -111,6 +111,7 @@ blocks:
     fix_file: fix_file
     hold: 'True'
     engine: '''auto'''
+    eph_file: '""'
     comment: Acquisition -> 8 x (Channel -> Nav Decoder) -> PVT
   states:
     bus_sink: false

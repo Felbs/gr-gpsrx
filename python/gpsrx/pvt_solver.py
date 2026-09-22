@@ -32,13 +32,29 @@ from gnuradio import gr
 
 from . import pvt
 
+EPH_VALID_S = 2.0 * 3600.0      # a broadcast ephemeris is fitted for +-2 h about its toe
+
 
 class pvt_solver(gr.basic_block):
-    def __init__(self, samp_rate=2.048e6, average=15, iono_file="", fix_file="", min_interval_s=1.0):
+    def __init__(self, samp_rate=2.048e6, average=15, iono_file="", fix_file="", min_interval_s=1.0, eph_file=""):
         gr.basic_block.__init__(self, name="gpsrx_pvt", in_sig=None, out_sig=None)
         self.fs = float(samp_rate)
         self.average = int(average)
         self.fix_file = fix_file or ""
+        # eph_file: a warm start. Every complete ephemeris decoded is kept there by PRN, and a
+        # channel that has a timing anchor but has not finished its own decode borrows the stored
+        # orbit if the anchor's TOW is within EPH_VALID_S of its toe (the broadcast ephemeris is
+        # good for hours; the same satellites are overhead for the whole drive). The timing is
+        # always this capture's own. Measured need: on a 90 s capture from a moving car, seven
+        # satellites acquired strongly and only three finished decoding - fades break subframes.
+        self.eph_file = eph_file or ""
+        self.eph_store = {}
+        if self.eph_file and os.path.exists(self.eph_file):
+            try:
+                self.eph_store = {int(k): v for k, v in json.load(open(self.eph_file)).items()}
+            except (ValueError, OSError):
+                self.eph_store = {}
+        self.n_borrowed = 0
         self.min_interval = float(min_interval_s)
         self.message_port_register_in(pmt.intern("obs"))
         self.message_port_register_in(pmt.intern("nav"))
@@ -73,6 +89,22 @@ class pvt_solver(gr.basic_block):
             ent["anchor"] = (int(d["anchor"][0]), float(d["anchor"][1]))
             if d.get("complete") and "eph" in d:
                 ent["eph"] = dict(d["eph"], prn=int(d["prn"]))
+                ent["borrowed"] = False
+                if self.eph_file:
+                    self.eph_store[int(d["prn"])] = ent["eph"]
+                    try:
+                        os.makedirs(os.path.dirname(os.path.abspath(self.eph_file)), exist_ok=True)
+                        with open(self.eph_file, "w") as fh:
+                            json.dump({str(k): v for k, v in self.eph_store.items()}, fh)
+                    except OSError:
+                        pass
+            elif "eph" not in ent and int(d["prn"]) in self.eph_store:
+                cand = self.eph_store[int(d["prn"])]
+                tow = float(d["anchor"][1])
+                if abs(((tow - cand["toe"]) + 302400) % 604800 - 302400) < EPH_VALID_S:
+                    ent["eph"] = cand
+                    ent["borrowed"] = True
+                    self.n_borrowed += 1
             if "iono" in d:
                 self.iono, self.iono_src = {"a": list(d["iono"]["a"]), "b": list(d["iono"]["b"])}, "decoded"
 
@@ -100,7 +132,8 @@ class pvt_solver(gr.basic_block):
                     continue
                 ent = self.nav.get((slot, int(o["prn"])))
                 if ent and "eph" in ent and "anchor" in ent:
-                    chans.append(dict(prn=int(o["prn"]), eph=ent["eph"], anchor=ent["anchor"], obs=o))
+                    chans.append(dict(prn=int(o["prn"]), eph=ent["eph"], anchor=ent["anchor"], obs=o,
+                                      borrowed=ent.get("borrowed", False)))
             if len(chans) < 4:
                 return
             self._last = now
@@ -121,6 +154,7 @@ class pvt_solver(gr.basic_block):
                        altitude_plausible=fx["altitude_plausible"], residuals_m=fx["residuals_m"],
                        ecef=fx["ecef"], llh=list(fx["llh"]), clock_bias_s=fx["clock_bias_s"],
                        epoch_sample=fx["epoch_sample"], iono=self.iono_src, count=self.n_fixes,
+                       borrowed=[c["prn"] for c in chans if c.get("borrowed")],
                        azel={str(p): list(v) for p, v in fx["azel"].items()})     # the sky, for the panel
             if P is not None and len(P) >= 3:
                 mean = P.mean(axis=0)

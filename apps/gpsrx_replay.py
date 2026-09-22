@@ -37,6 +37,7 @@ def main():
     ap.add_argument("--fix-file", default=os.path.join(HERE, "..", "lab_local", "fix_replay.json"))
     ap.add_argument("--iono-file", default=os.path.join(HERE, "..", "lab_local", "iono_terms.json"))
     ap.add_argument("--log", default="")
+    ap.add_argument("--eph-file", default="", help="warm start: ephemerides kept across runs (a private file)")
     a = ap.parse_args()
 
     tb = gr.top_block()
@@ -44,7 +45,7 @@ def main():
                              int(a.secs * a.rate) * 2 if a.secs else 0)
     to_c = blocks.interleaved_short_to_complex(False, False, 32768.0)
     rx = gpsrx.receiver(a.rate, n_channels=a.channels, interval_s=a.interval,
-                        iono_file=a.iono_file, fix_file=a.fix_file, hold=True)      # replay: stop time while searching
+                        iono_file=a.iono_file, fix_file=a.fix_file, hold=True, eph_file=a.eph_file)      # replay: stop time while searching
     st = gpsrx.status_sink(every_s=2.0, log_file=a.log)
     tb.connect(src, to_c, rx)
     for port in ("sky", "status", "obs", "nav", "fix"):

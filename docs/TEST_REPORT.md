@@ -94,6 +94,23 @@ last observable in the solver, and every later fix carried it (rms 3 -> 50 m). P
 channel's observable on 'lost'/'idle' and ignores any observable more than 2.5 s older than the
 newest; the fix file keeps every fix's quality and ECEF as a history.
 
+## A drive: 27 x 90 s from a car roof, up to 24 m/s (54 mph), both receivers on the same IQ
+
+Cold (nothing carried between captures): gr-gpsrx fixed 23 of 27. The misses had seven or eight
+satellites acquired strongly but only three ephemerides finished - at speed, fades break subframes
+and 90 s is not long enough to decode everything from scratch. numpy-gps fixed those because it
+carries orbits between captures, so PVT now keeps every decoded ephemeris in a file and lends it to
+a channel that has timing but has not finished its own decode (toe within 2 h). **Warm: 27 of 27**,
+37-81 fixes per capture at 1 Hz, residual rms 1-3 m, 14 captures using a borrowed orbit.
+
+Against numpy-gps on the same captures (offsets between the two receivers' tracks at matching
+instants, no coordinates): numpy-gps AFTER its window-centre fix sits a median **28 m** from this
+receiver's track and agrees on the car's speed to ~1 m/s on every moving leg; numpy-gps as run ON
+THE DRIVE NIGHT (before the fix) was a median **217 m** off, up to 1 km, with one 2,500 km "fix" -
+the window-centre error scales with Doppler, and a car roof sees the full +-5 kHz. numpy-gps gave no
+fix on three captures this receiver fixed, and its two four-satellite solutions were 100-700 m out
+(no redundancy). The owner's eyes on a private map of both tracks are the truth check for the road.
+
 ## Defects found by testing (all fixed)
 
 1. Costas discriminator written as `atan2(Q, I)`: a 180-degree data flip read as a 165-degree phase error, the carrier slewed 100 Hz, every bit transition glitched. Must be `atan(Q/I)`. (Two hours.)

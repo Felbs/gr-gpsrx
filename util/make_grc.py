@@ -51,7 +51,7 @@ def build_replay():
     y = 220
     b = source(y) + [
         blk("rx", "gpsrx_receiver", 560, y - 40, samp_rate="samp_rate", n_channels=8, interval_s=100.0, threshold=2.5,
-            iono_file='""', fix_file="fix_file", hold="True", engine="'auto'",
+            iono_file='""', fix_file="fix_file", hold="True", engine="'auto'", eph_file='""',
             comment="Acquisition -> 8 x (Channel -> Nav Decoder) -> PVT"),
         blk("status", "gpsrx_status", 900, y - 40, every_s=2.0, log_file='""',
             comment="quality only; the position goes to the fix file"),
@@ -70,7 +70,7 @@ def build_canvas(n=6):
             threshold=2.5, n_noncoh=100, snapshot_ms=110, settle_s=0.5, hold="True",
             comment="finds the satellites; assigns each to a Channel slot"),
         blk("pvt", "gpsrx_pvt", 1300, y + 60 * n, samp_rate="samp_rate", average=15, iono_file='""',
-            fix_file="fix_file", comment="period counts + anchors -> pseudoranges -> least squares"),
+            fix_file="fix_file", eph_file='""', comment="period counts + anchors -> pseudoranges -> least squares"),
         blk("status", "gpsrx_status", 1560, y + 60 * n, every_s=2.0, log_file='""'),
     ]
     c = [["src", "0", "to_c", "0"], ["to_c", "0", "acq", "0"], ["acq", "sky", "status", "sky"],
@@ -94,7 +94,7 @@ def build_replay_qt():
     y = 220
     b = source(y) + [
         blk("rx", "gpsrx_receiver", 560, y - 40, samp_rate="samp_rate", n_channels=8, interval_s=100.0, threshold=2.5,
-            iono_file='""', fix_file="fix_file", hold="True", engine="'auto'"),
+            iono_file='""', fix_file="fix_file", hold="True", engine="'auto'", eph_file='""'),
         blk("panel", "gpsrx_sky_panel", 900, y - 40, label='"GPS receiver (replay)"', private="private", gui_hint="0,0,1,1"),
         blk("private", "parameter", 1240, 12, label="Private view (screenshots)", type="intx", value="0", short_id="p"),
     ]
@@ -124,7 +124,7 @@ def build_radio_qt():
             agc0=True, settings0="settings", minoutbuf=str(1 << 22),
             comment="L1 C/A: 1575.42 MHz. GPS is under the noise, so the AGC only sees noise - and that is fine"),
         blk("rx", "gpsrx_receiver", 560, y - 40, samp_rate="samp_rate", n_channels=8, interval_s=20.0, threshold=2.5,
-            iono_file='""', fix_file="fix_file", hold="False", engine="'cpp'",
+            iono_file='""', fix_file="fix_file", hold="False", engine="'cpp'", eph_file='""',
             comment="live needs the C++ Channel (util/build_win.cmd, or cmake on Linux)"),
         blk("spectrum", "qtgui_freq_sink_x", 330, y - 260, type="complex", name='"L1 baseband (the signal is below the noise)"',
             fftsize=1024, fc=0, bw="samp_rate", average=0.02, gui_hint="0,0,1,1"),

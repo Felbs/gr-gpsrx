@@ -21,12 +21,13 @@ documentation: 'Every Channel''s ''obs'' and every Nav Decoder''s ''nav'' in; th
 
   observable is dropped, and any observable more than 2.5 s older than the newest is ignored.'
 templates: {imports: from gnuradio import gpsrx, make: 'gpsrx.pvt_solver(samp_rate=${samp_rate}, average=${average},
-    iono_file=${iono_file}, fix_file=${fix_file})'}
+    iono_file=${iono_file}, fix_file=${fix_file}, eph_file=${eph_file})'}
 parameters:
 - {id: samp_rate, label: Sample rate, dtype: real, default: samp_rate}
 - {id: average, label: Average fixes, dtype: int, default: '15'}
 - {id: iono_file, label: Iono file, dtype: file_open, default: ''''''}
 - {id: fix_file, label: Fix file, dtype: file_save, default: ''''''}
+- {id: eph_file, label: Ephemeris file (warm start), dtype: file_save, default: ''''''}
 inputs:
 - {domain: message, id: obs}
 - {domain: message, id: nav}
