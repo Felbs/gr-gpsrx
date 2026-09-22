@@ -62,9 +62,26 @@ def refine_doppler(x, fs, prn, doppler_hz, code_phase, n_ms=100):
     return float(doppler_hz + fax[int(np.argmax(spec))] / 2.0)
 
 
-def sky(x, fs, threshold=2.5, n_noncoh=40, prns=ALL_PRNS, refine=True):
-    """The satellites present, refined, best first: [{prn, metric, doppler_hz, code_phase}]."""
-    found = [dict(prn=p, **r) for p, r in search(x, fs, prns, n_noncoh=n_noncoh).items() if r["metric"] > threshold]
+def lo_offset(x, fs, span_hz=50000.0, step_hz=500.0, n_noncoh=10, prns=ALL_PRNS, threshold=2.5):
+    """Where is the radio's local oscillator? A cheap crystal (an RTL-SDR: ~30 ppm) puts every
+    satellite up to +-47 kHz from where it should be, far outside a +-7 kHz search. One wide,
+    coarse pass (500 Hz steps: a 1 ms coherent sum resolves ~1 kHz) over a few blocks finds the
+    strongest satellites wherever they are; the median of their Dopplers is the LO's offset to
+    within the constellation's own +-5 kHz spread. Returns (offset_hz, n_found)."""
+    dops = np.arange(-span_hz, span_hz + 1, step_hz)
+    found = [r["doppler_hz"] for r in search(x, fs, prns, dopplers=dops, n_noncoh=n_noncoh).values()
+             if r["metric"] > threshold]
+    if not found:
+        return 0.0, 0
+    return float(np.median(found)), len(found)
+
+
+def sky(x, fs, threshold=2.5, n_noncoh=40, prns=ALL_PRNS, refine=True, centre_hz=0.0, doppler_max=7000.0):
+    """The satellites present, refined, best first: [{prn, metric, doppler_hz, code_phase}].
+    centre_hz: the LO offset from lo_offset(), so the +-doppler_max window sits on the sky."""
+    dops = np.arange(centre_hz - doppler_max, centre_hz + doppler_max + 1, 250.0)
+    found = [dict(prn=p, **r) for p, r in search(x, fs, prns, dopplers=dops, n_noncoh=n_noncoh).items()
+             if r["metric"] > threshold]
     found.sort(key=lambda r: -r["metric"])
     if refine:
         n_ref = int(0.11 * fs)

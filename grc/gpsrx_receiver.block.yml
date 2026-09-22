@@ -13,7 +13,7 @@ documentation: 'The whole receiver in one block: Acquisition -> N x (Channel -> 
   Channel keeps up with a radio; the Python one is for replay and reading.'
 templates: {imports: from gnuradio import gpsrx, make: 'gpsrx.receiver(samp_rate=${samp_rate}, n_channels=${n_channels},
     interval_s=${interval_s}, threshold=${threshold}, iono_file=${iono_file}, fix_file=${fix_file}, hold=${hold},
-    engine=${engine}, eph_file=${eph_file}, smoothing=${smoothing}, kf_vel_sd=${kf_vel_sd})'}
+    engine=${engine}, eph_file=${eph_file}, smoothing=${smoothing}, kf_vel_sd=${kf_vel_sd}, lo_search_hz=${lo_search_hz})'}
 parameters:
 - {id: samp_rate, label: Sample rate, dtype: real, default: samp_rate}
 - {id: n_channels, label: Channels, dtype: int, default: '8'}
@@ -36,6 +36,7 @@ parameters:
 - {id: eph_file, label: Ephemeris file (warm start), dtype: file_save, default: ''''''}
 - {id: smoothing, label: 'Carrier smoothing (epochs, 0 = off)', dtype: int, default: '100'}
 - {id: kf_vel_sd, label: 'Kalman velocity noise (m/s/sqrt(s), 0 = off)', dtype: real, default: '4.0'}
+- {id: lo_search_hz, label: 'LO offset search (+-Hz; 50000 for an RTL-SDR, 0 = off)', dtype: real, default: '0.0'}
 inputs:
 - {domain: stream, dtype: complex}
 outputs:

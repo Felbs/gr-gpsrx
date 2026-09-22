@@ -31,7 +31,7 @@ from . import acquire
 
 class acquisition(gr.sync_block):
     def __init__(self, samp_rate=2.048e6, n_slots=8, snapshot_ms=110, interval_s=20.0, threshold=2.5,
-                 n_noncoh=100, prns=None, hold=False, settle_s=0.5):
+                 n_noncoh=100, prns=None, hold=False, settle_s=0.5, lo_search_hz=0.0, doppler_max=7000.0):
         gr.sync_block.__init__(self, name="gpsrx_acquisition", in_sig=[np.complex64], out_sig=None)
         self.fs = float(samp_rate)
         # hold: stop the stream while a search runs. For REPLAY: a file source runs as fast as its
@@ -39,6 +39,12 @@ class acquisition(gr.sync_block):
         # 7 s search (measured) and were never tracked. Live, the radio paces the stream and the
         # search simply costs its own duration of samples - as it does in every receiver.
         self.hold = bool(hold)
+        # lo_search_hz > 0: before the first search, find the LO's offset with one wide coarse
+        # pass (an RTL-SDR's crystal can be 47 kHz out at L1) and centre every search on it;
+        # 0 for a TCXO radio (SDRplay, Airspy, Pluto) whose error is inside +-doppler_max
+        self.lo_search_hz = float(lo_search_hz)
+        self.doppler_max = float(doppler_max)
+        self.lo_offset_hz = None
         self.n_slots = int(n_slots)
         self.snap_n = int(round(self.fs * snapshot_ms * 1e-3))
         self.interval = float(interval_s)
@@ -93,13 +99,22 @@ class acquisition(gr.sync_block):
 
     def _search(self, snap, s0):
         t = time.time()
-        found = acquire.sky(snap.astype(np.complex128), self.fs, threshold=self.threshold,
-                            n_noncoh=self.n_noncoh, prns=self.prns)
+        xs = snap.astype(np.complex128)
+        if self.lo_search_hz > 0 and self.lo_offset_hz is None:
+            off, n = acquire.lo_offset(xs, self.fs, span_hz=self.lo_search_hz, prns=self.prns, threshold=self.threshold)
+            if n:
+                self.lo_offset_hz = off
+        found = acquire.sky(xs, self.fs, threshold=self.threshold, n_noncoh=self.n_noncoh, prns=self.prns,
+                            centre_hz=self.lo_offset_hz or 0.0,
+                            # the median of the found satellites can sit 5 kHz from the LO, a satellite
+                            # another 5 kHz beyond it: widen the window once an offset is in use
+                            doppler_max=self.doppler_max + (3000.0 if self.lo_offset_hz else 0.0))
         self.n_searches += 1
         for r in found:
             r["sample"] = float(s0 + r["code_phase"])          # absolute: the flowgraph's one clock
         self.message_port_pub(pmt.intern("sky"), pmt.to_pmt(dict(
-            sample0=int(s0), seconds=float(time.time() - t), birds=found, search=self.n_searches)))
+            sample0=int(s0), seconds=float(time.time() - t), birds=found, search=self.n_searches,
+            lo_offset_hz=float(self.lo_offset_hz or 0.0))))
         with self._lock:
             tracked = {p for p in self.slots.values() if p}
             for r in found:

@@ -27,16 +27,19 @@ satellite to a free Channel slot on 'assign' (connect it to every Channel's 'ass
 Channel only acts on its own slot). Connect every Channel's 'status' back to 'status' so
 the slot table knows which are busy.
 Threshold: peak over second peak; 2.5 with 100 ms separates real satellites (>3) from
-noise (<1.8), measured on air. Hold: for file replay only - stops the stream while a
+noise (<1.8), measured on air. LO offset search: a cheap crystal (RTL-SDR, ~30 ppm) puts
+the whole sky up to +-47 kHz off; one wide coarse pass finds it and every search is centred there.
+Hold: for file replay only - stops the stream while a
 search runs, otherwise a file source races past an idle receiver.""",
          make="gpsrx.acquisition(samp_rate=${samp_rate}, n_slots=${n_slots}, snapshot_ms=${snapshot_ms}, "
-              "interval_s=${interval_s}, threshold=${threshold}, n_noncoh=${n_noncoh}, hold=${hold}, settle_s=${settle_s})",
+              "interval_s=${interval_s}, threshold=${threshold}, n_noncoh=${n_noncoh}, hold=${hold}, settle_s=${settle_s}, lo_search_hz=${lo_search_hz})",
          params=[RATE, {"id": "n_slots", "label": "Channel slots", "dtype": "int", "default": "8"},
                  {"id": "interval_s", "label": "Interval (s)", "dtype": "real", "default": "20.0"},
                  {"id": "threshold", "label": "Threshold", "dtype": "real", "default": "2.5"},
                  {"id": "n_noncoh", "label": "Non-coherent ms", "dtype": "int", "default": "100", "hide": "part"},
                  {"id": "snapshot_ms", "label": "Snapshot (ms)", "dtype": "int", "default": "110", "hide": "part"},
                  {"id": "settle_s", "label": "First search after (s)", "dtype": "real", "default": "0.5", "hide": "part"},
+                 {"id": "lo_search_hz", "label": "LO offset search (+-Hz; 50000 for an RTL-SDR, 0 = off)", "dtype": "real", "default": "0.0"},
                  {"id": "hold", "label": "Hold the stream while searching", "dtype": "enum", "default": "False",
                   "options": ["False", "True"], "option_labels": ["No (radio)", "Yes (file replay)"]}],
          inputs=[{"domain": "stream", "dtype": "complex"}, {"domain": "message", "id": "status", "optional": True}],
@@ -123,7 +126,7 @@ Complex baseband in; 'fix' out, plus every inner message port ('sky', 'status', 
 examples/gpsrx_canvas.grc. Hold: file replay only. Channel engine: the C++
 Channel keeps up with a radio; the Python one is for replay and reading.""",
          make="gpsrx.receiver(samp_rate=${samp_rate}, n_channels=${n_channels}, interval_s=${interval_s}, "
-              "threshold=${threshold}, iono_file=${iono_file}, fix_file=${fix_file}, hold=${hold}, engine=${engine}, eph_file=${eph_file}, smoothing=${smoothing}, kf_vel_sd=${kf_vel_sd})",
+              "threshold=${threshold}, iono_file=${iono_file}, fix_file=${fix_file}, hold=${hold}, engine=${engine}, eph_file=${eph_file}, smoothing=${smoothing}, kf_vel_sd=${kf_vel_sd}, lo_search_hz=${lo_search_hz})",
          params=[RATE, {"id": "n_channels", "label": "Channels", "dtype": "int", "default": "8"},
                  {"id": "engine", "label": "Channel engine", "dtype": "enum", "default": "'auto'",
                   "options": ["'auto'", "'cpp'", "'python'"], "option_labels": ["C++ if built", "C++ (live)", "Python (replay only)"]},
@@ -135,7 +138,8 @@ Channel keeps up with a radio; the Python one is for replay and reading.""",
                   "options": ["False", "True"], "option_labels": ["No (radio)", "Yes (file replay)"]},
                  {"id": "eph_file", "label": "Ephemeris file (warm start)", "dtype": "file_save", "default": "''"},
                  {"id": "smoothing", "label": "Carrier smoothing (epochs, 0 = off)", "dtype": "int", "default": "100"},
-                 {"id": "kf_vel_sd", "label": "Kalman velocity noise (m/s/sqrt(s), 0 = off)", "dtype": "real", "default": "4.0"}],
+                 {"id": "kf_vel_sd", "label": "Kalman velocity noise (m/s/sqrt(s), 0 = off)", "dtype": "real", "default": "4.0"},
+                 {"id": "lo_search_hz", "label": "LO offset search (+-Hz; 50000 for an RTL-SDR, 0 = off)", "dtype": "real", "default": "0.0"}],
          inputs=[{"domain": "stream", "dtype": "complex"}],
          outputs=[{"domain": "message", "id": p, "optional": True} for p in ("sky", "status", "obs", "nav", "fix")]),
     dict(id="gpsrx_sky_panel", label="GPS Sky Panel", doc="""Qt panel: the sky as a polar plot with every tracked satellite where the fix puts it

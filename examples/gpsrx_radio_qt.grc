@@ -116,6 +116,22 @@ blocks:
     - 12
     rotation: 0
     state: enabled
+- name: lo_search
+  id: parameter
+  parameters:
+    label: LO offset search +-Hz (50000 for an RTL-SDR, 0 = TCXO radio)
+    type: eng_float
+    value: '0'
+    short_id: l
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 1240
+    - 100
+    rotation: 0
+    state: enabled
 - name: src
   id: soapy_custom_source
   parameters:
@@ -156,6 +172,7 @@ blocks:
     eph_file: '""'
     smoothing: '100'
     kf_vel_sd: '4.0'
+    lo_search_hz: lo_search
     comment: live needs the C++ Channel (util/build_win.cmd, or cmake on Linux)
   states:
     bus_sink: false
