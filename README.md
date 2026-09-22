@@ -10,8 +10,9 @@
 > 3.7 m apart) with quieter raw fixes (1.1-1.7 m 15-epoch scatter against gnss-sdr's tuned
 > 7.6 m; its Kalman output 1.6 m), and from a car at 52 mph it sits in the same lane, 2-3 m
 > apart. **Galileo E1** is in - pilot-aided tracking on E1-C with I/NAV decoding, C++ and Python
-> - and a joint GPS + Galileo fix is quieter than GPS alone on the same samples (1.8 m vs 3.8 m
-> settled scatter). Replay is deterministic to the millimetre. Every fix carries GPS time, the
+> - a joint GPS + Galileo fix is quieter than GPS alone on the same samples (1.8 m vs 3.8 m
+> settled scatter), and it runs **live**: 8 minutes on the RSPdx, four Galileo satellites tracked
+> and decoded from the air, 426 fixes from 7 GPS + 3 Galileo, 100% valid, rms 2.2 m, 0.6 m scatter. Replay is deterministic to the millimetre. Every fix carries GPS time, the
 > sample clock's drift, and the sample of the next whole second (a 1PPS on the sample clock).
 > Eight C++ channels run at 15x real time on a PC and 13x on a Raspberry Pi 5. Windows
 > (radioconda + MSVC), Linux and the Pi build from the same CMake; CI builds against Ubuntu's
@@ -106,7 +107,7 @@ All of it is in `docs/TEST_REPORT.md`; the headlines, no coordinates anywhere:
 - **Live, one hour, RSPdx + attic antenna:** 3525 fixes at 1 Hz, 99.8% valid, median 7 satellites, rms 1.9 m, scatter 0.6 m raw / 0.4 m filtered, 4.5 m spread over the hour.
 - **Against gnss-sdr on the same files:** same place (3.7 m), quieter raw epochs (1.1-1.7 m vs 7.6 m at 15 epochs); same lane from the car.
 - **A drive, 27 x 90 s at up to 54 mph:** 27 of 27 fixed with warm start, rms 1-3 m; the third-order PLL keeps 5+ satellites through the 52 mph leg.
-- **Galileo:** 4 satellites tracked pilot-aided, every I/NAV page CRC-clean; 7 GPS + 4 Galileo joint fix, PDOP 1.9, GST-GPS as this receiver sees it -115 ns; settled scatter 1.8 m vs 3.8 m GPS-only.
+- **Galileo:** 4 satellites tracked pilot-aided, every I/NAV page CRC-clean; 7 GPS + 4 Galileo joint fix on a recording, PDOP 1.9, settled scatter 1.8 m vs 3.8 m GPS-only; **live**, 4 Galileo tracked and decoded, 426 fixes from 10 satellites, 100% valid, rms 2.2 m.
 - **Time:** the sample clock's drift reads -796 ppb; numpy-gps measured the same TCXO at 796.7 ppb two months earlier.
 - **Sensitivity** (synthetic): tracks and decodes to 34 dB-Hz. **Determinism:** two replays 0.000000 m apart.
 - **Tests:** 23 engine tests (no GNU Radio), 6 flowgraph QA; CI on Ubuntu 24.04 against the distribution's GNU Radio.

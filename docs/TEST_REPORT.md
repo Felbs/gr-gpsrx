@@ -225,6 +225,19 @@ QA: two synthetic Galileo satellites (`synth.satellite(system="GAL")`: E1-B x sy
 the secondary code, half the power each) through both engines - identical epoch counts, Doppler
 within 2 Hz, code phase within 0.02 chip, the C++ symbol stream equal to the symbols that went in.
 
+**Galileo LIVE** (the same evening, RSPdx, Antenna B, 4.096 MS/s, 8 GPS + 4 Galileo C++ channels,
+8 minutes): four Galileo satellites tracked pilot-aided from the air (C/N0 33-37 dB-Hz, lock
+0.80-0.92, every one decoding I/NAV to a complete ephemeris - 163-187 pages each); **426 fixes,
+100% valid, 355 of them with Galileo in the solve; median 10 satellites (7 GPS + 3 Galileo), median
+rms 2.2 m, PDOP 2.1, 15-fix scatter 0.6-0.7 m**, 2.6 m scatter over the Galileo era, the run's mean
+3 m from the previous live fix and 7 m from the live hour's. The first Galileo satellite joined
+at 4 minutes (the search runs at 125 Hz steps over 36 PRNs and the I/NAV ephemeris takes ~30 s
+of clean pages). One number to keep watching: the inter-system bias read **-834 ns live against
+-115 ns on the July wideband capture** from the same radio - the receiver-side part of GST-GPS
+depends on the analog filter (the BOC lobes sit at +-1 MHz, where a 5 MHz IF filter's group delay
+differs from the centre), and the two runs had different bandwidth settings. It is solved per
+fix, so the position does not depend on it; the number itself is not a GGTO measurement.
+
 ## Defects found by testing (all fixed)
 
 1. Costas discriminator written as `atan2(Q, I)`: a 180-degree data flip read as a 165-degree phase error, the carrier slewed 100 Hz, every bit transition glitched. Must be `atan(Q/I)`. (Two hours.)
