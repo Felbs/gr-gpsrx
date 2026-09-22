@@ -94,11 +94,13 @@ readable channels instead of the C++ ones (0.17x real time for eight: replay onl
 
 ![tracking through pull-in and the two stages, synthetic satellite](docs/img/walk_3_tracking.png)
 
-![the Sky Panel on a recording, private view](docs/img/sky_panel_private.png)
+![the Sky Panel on a GPS + Galileo replay, private view](docs/img/sky_panel_galileo_replay_private.png)
 
-*The Sky Panel's private view: a named constellation at a known time can be inverted to a
-rough position, so for screenshots the PRN numbers are hidden and the sky is turned by an
-undisclosed angle. Everything else in the picture is as it ran.*
+*The Sky Panel on the wideband recording with four Galileo channels (`E--`) beside seven GPS:
+11 satellites in the fix. The panel's private view: a named constellation at a known time can
+be inverted to a rough position, so for screenshots the PRN numbers are hidden and the sky is
+turned by an undisclosed angle. Everything else in the picture is as it ran; dot colour is
+lock quality. The GPS-only version is `docs/img/sky_panel_private.png`.*
 
 ## Measured
 
@@ -120,6 +122,9 @@ All of it is in `docs/TEST_REPORT.md`; the headlines, no coordinates anywhere:
 - The wide LO search for RTL-SDR crystals is tested on synthetic satellites, not yet on the bench.
 - Acquisition is snapshot-and-search every N seconds; a satellite rising mid-run is picked up at
   the next interval.
+- A dropped sample block (a SoapySDR overflow) silently breaks the counting observable until the
+  channels re-acquire; the receiver does not yet detect it. The Qt radio flowgraph's full-rate
+  spectrum display causes overflows at 4.096 MS/s on a PC - use `apps/gpsrx_live.py` for Galileo live.
 - GLONASS, BeiDou: not started.
 
 ## Licence

@@ -238,6 +238,20 @@ depends on the analog filter (the BOC lobes sit at +-1 MHz, where a 5 MHz IF fil
 differs from the centre), and the two runs had different bandwidth settings. It is solved per
 fix, so the position does not depend on it; the number itself is not a GGTO measurement.
 
+**Found on the way - the Qt live flowgraph overruns at 4.096 MS/s.** Two attempts at a live
+Galileo screenshot with the `gpsrx_radio_qt` flowgraph (spectrum display + Sky Panel) at
+4.096 MS/s printed `O` (SoapySDR overflow) bursts, and each burst took every channel down: the
+observable is a COUNT of code periods against the sample stream, so a dropped block silently
+shifts every channel's clock, the solve goes wrong and the channels re-acquire. The headless
+app at the same rate had no overflow in 8 minutes; the difference is the Qt frequency sink
+running on the full 4 MS/s stream. Two things follow: the radio flowgraph's spectrum display
+needs to be decimated (or removed) for Galileo rates, and the receiver should treat an
+overflow as a resynchronisation event (drop every anchor) rather than carry on counting -
+gr-soapy reports the overflow on the console, not as a stream tag, so this needs a watchdog
+(a channel whose epoch count and `sample_abs` disagree with the sample rate by more than a
+period) - not done. The Galileo screenshot in the README is from the replay, where no sample
+is ever dropped.
+
 ## Defects found by testing (all fixed)
 
 1. Costas discriminator written as `atan2(Q, I)`: a 180-degree data flip read as a 165-degree phase error, the carrier slewed 100 Hz, every bit transition glitched. Must be `atan(Q/I)`. (Two hours.)
