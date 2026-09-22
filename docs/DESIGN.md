@@ -1,4 +1,4 @@
-# gr-gpsrx design: a GPS L1 C/A receiver made of GNU Radio blocks
+﻿# gr-gpsrx design: a GPS L1 C/A receiver made of GNU Radio blocks
 
 > **Status 2026-09-22:** built as designed, in Python: all six blocks plus a Receiver hier block,
 > four flowgraphs, the tests in the gates section; gate 0 passed, gate 1 failed (0.17x for eight
@@ -9,7 +9,7 @@
 > plays that role), and the observable carries the epoch's fractional arrival sample rather
 > than a whole-sample boundary plus code phase.
 
-Status: built (see the note above). Local repository, not published.
+Status: built (see the note above). Public: https://github.com/Felbs/gr-gpsrx
 
 ## Purpose
 
@@ -27,22 +27,22 @@ assistance, no almanac, no RTK. Never anything encrypted.
 ## The receiver, as blocks
 
 ```
-                     ┌────────────────────────────────────────────────────────────────────┐
- Soapy Source ──────►│ gpsrx Acquisition                                                  │
- 2.048 MS/s, cf32    │  every N s: snapshot 4 ms, FFT search 32 PRNs x Doppler bins       │──► 'sky' (msg: PRN, Doppler, code phase, metric)
- bias-T on           └────────────────────────────────────────────────────────────────────┘
-        │
-        │  the same stream, to every channel
-        ├──► gpsrx Channel (PRN a) ──► 'prompt' (1 kHz I/Q), 'obs' (code phase + carrier + epoch counter, 1 Hz)
-        ├──► gpsrx Channel (PRN b) ──► ...
-        └──► gpsrx Channel (PRN n)
-                       │ 'prompt'                      │ 'obs'
-                       ▼                               ▼
+                     â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+ Soapy Source â”€â”€â”€â”€â”€â”€â–ºâ”‚ gpsrx Acquisition                                                  â”‚
+ 2.048 MS/s, cf32    â”‚  every N s: snapshot 4 ms, FFT search 32 PRNs x Doppler bins       â”‚â”€â”€â–º 'sky' (msg: PRN, Doppler, code phase, metric)
+ bias-T on           â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+        â”‚
+        â”‚  the same stream, to every channel
+        â”œâ”€â”€â–º gpsrx Channel (PRN a) â”€â”€â–º 'prompt' (1 kHz I/Q), 'obs' (code phase + carrier + epoch counter, 1 Hz)
+        â”œâ”€â”€â–º gpsrx Channel (PRN b) â”€â”€â–º ...
+        â””â”€â”€â–º gpsrx Channel (PRN n)
+                       â”‚ 'prompt'                      â”‚ 'obs'
+                       â–¼                               â–¼
               gpsrx Nav Decoder (per channel)   gpsrx PVT Solver
               bits -> preamble -> parity ->     pseudoranges from >=4 channels at a common
-              subframes -> ephemeris ──────────► receive epoch -> least squares -> position,
-              'eph' (msg)                       clock bias, DOP ──► 'fix' (msg)
-                                                                    │
+              subframes -> ephemeris â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–º receive epoch -> least squares -> position,
+              'eph' (msg)                       clock bias, DOP â”€â”€â–º 'fix' (msg)
+                                                                    â”‚
                                                           gpsrx Sky Panel (Qt)
                                                           sky plot, C/N0 bars, eye of the
                                                           nav bits, fix quality (not coordinates)
@@ -54,7 +54,7 @@ Six blocks, five in Python:
 |---|---|---|---|---|
 | **Acquisition** | stream | `sky` msg per detection | `measure.acquire()` | Runs on a 4 ms snapshot every few seconds on its own thread (the ATSC 3.0 lesson: never do heavy work in `work()`). Emits only NEW satellites, and re-emits a lost one after the channel reports loss. |
 | **Channel** | stream | `prompt` (msg or a 1 kHz float stream), `obs` msg | `measure.track_sv()`, `prompts_ms()` | One instance per satellite, created by the flowgraph from a channel *bank* (see below). NCO, C/A code with fractional phase, early/prompt/late correlators, DLL (early-late envelope) and PLL (Costas). Works on whole-millisecond chunks; carries an integer code-epoch counter from acquisition onward - **that counter is the pseudorange**. |
-| **Nav Decoder** | `prompt` | `eph` msg | `fix.decode_eph()` | Bit sync (20 ms histogram), preamble + parity (IS-GPS-200 §20.3.5), subframes 1-3 -> ephemeris, 4/18 -> Klobuchar. Publishes the TOW of each subframe with the channel's epoch counter at that instant: the **timing anchor** numpy-gps calls it. |
+| **Nav Decoder** | `prompt` | `eph` msg | `fix.decode_eph()` | Bit sync (20 ms histogram), preamble + parity (IS-GPS-200 Â§20.3.5), subframes 1-3 -> ephemeris, 4/18 -> Klobuchar. Publishes the TOW of each subframe with the channel's epoch counter at that instant: the **timing anchor** numpy-gps calls it. |
 | **PVT Solver** | `obs` x N, `eph` x N | `fix` msg | `fix.solve_snapshot()`, `sat_ecef`, `clock_corr`, `klobuchar`, `tropo_delay` | At each solve epoch: for every channel with an ephemeris, transmit time = anchored TOW + (epochs since anchor) x 1 ms - code phase (numpy-gps rule 1: phase is to the NEXT epoch), in SV time; SV clock correction after (rule 2); common receive epoch = max transmit time + ~70 ms, then the same relative-integer search numpy-gps uses (rule 3). Least squares with elevation weights, tropo + iono. |
 | **Sky Panel** (Qt) | `sky`, `obs`, `fix` | - | `dash.py` | Az/el sky plot from the ephemerides, C/N0 per channel, bit eye, the fix as **count, rms, DOP, plausible altitude** - coordinates go to a file the user names, never to the panel, never to a screenshot. |
 | **Channel Bank** | - | - | - | Not a block: a Python helper (and later a hier block) that owns N Channel instances and a Nav Decoder each, connects them, and maps acquisition messages onto free slots. GNU Radio cannot add blocks to a running flowgraph, so the bank pre-allocates (12) and idles the unused ones. This is what gnss-sdr's channel manager does. |
