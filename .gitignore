@@ -11,3 +11,6 @@ runs/
 *.pyd
 *.so
 
+prof
+*.prof
+
