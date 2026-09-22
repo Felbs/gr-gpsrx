@@ -24,7 +24,8 @@ include(GrPybind)
 # Python Bindings
 ########################################################################
 
-list(APPEND gpsrx_python_files python_bindings.cc)
+list(APPEND gpsrx_python_files
+    channel_cc_python.cc python_bindings.cc)
 
 gr_pybind_make_oot(gpsrx ../../.. gr::gpsrx "${gpsrx_python_files}")
 

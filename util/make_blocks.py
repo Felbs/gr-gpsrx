@@ -59,6 +59,16 @@ lost / idle. Slot: this channel's number; Acquisition assigns by it.""",
          inputs=[{"domain": "stream", "dtype": "complex"}, {"domain": "message", "id": "assign"}],
          outputs=[{"domain": "stream", "dtype": "complex"}, {"domain": "message", "id": "obs"},
                   {"domain": "message", "id": "status", "optional": True}]),
+    dict(id="gpsrx_channel_cc", label="GPS Channel (C++)", doc="""The same Channel as GPS Channel, in C++: eight of them run at 15x real time (measured; the
+Python ones at 0.17x). Same ports, same tag, same messages, the same arithmetic line for
+line - a Nav Decoder or PVT cannot tell which it is wired to. Use this one live.""",
+         make="gpsrx.channel_cc(${samp_rate}, ${slot}, ${pll_bw}, ${dll_bw}, ${obs_every_ms})",
+         params=[RATE, SLOT, {"id": "pll_bw", "label": "PLL bandwidth (Hz)", "dtype": "real", "default": "18.0"},
+                 {"id": "dll_bw", "label": "DLL bandwidth (Hz)", "dtype": "real", "default": "2.0"},
+                 {"id": "obs_every_ms", "label": "Observable every (ms)", "dtype": "int", "default": "1000", "hide": "part"}],
+         inputs=[{"domain": "stream", "dtype": "complex"}, {"domain": "message", "id": "assign"}],
+         outputs=[{"domain": "stream", "dtype": "complex"}, {"domain": "message", "id": "obs"},
+                  {"domain": "message", "id": "status", "optional": True}]),
     dict(id="gpsrx_nav_decoder", label="GPS Nav Decoder", doc="""\
 A Channel's prompt stream in (1 kHz); the navigation message out. Bit sync (where the 20
 code periods of each bit begin), words, parity in either polarity, subframes 1-5,
@@ -96,10 +106,13 @@ scatter). It never prints the position. Connect whichever of 'sky', 'status', 'o
 The whole receiver in one block: Acquisition -> N x (Channel -> Nav Decoder) -> PVT.
 Complex baseband in; 'fix' out, plus every inner message port ('sky', 'status', 'obs',
 'nav') for a Status block or a Message Debug. The same wiring laid out block by block is
-examples/gpsrx_canvas.grc. Hold: file replay only.""",
+examples/gpsrx_canvas.grc. Hold: file replay only. Channel engine: the C++
+Channel keeps up with a radio; the Python one is for replay and reading.""",
          make="gpsrx.receiver(samp_rate=${samp_rate}, n_channels=${n_channels}, interval_s=${interval_s}, "
-              "threshold=${threshold}, iono_file=${iono_file}, fix_file=${fix_file}, hold=${hold})",
+              "threshold=${threshold}, iono_file=${iono_file}, fix_file=${fix_file}, hold=${hold}, engine=${engine})",
          params=[RATE, {"id": "n_channels", "label": "Channels", "dtype": "int", "default": "8"},
+                 {"id": "engine", "label": "Channel engine", "dtype": "enum", "default": "'auto'",
+                  "options": ["'auto'", "'cpp'", "'python'"], "option_labels": ["C++ if built", "C++ (live)", "Python (replay only)"]},
                  {"id": "interval_s", "label": "Search interval (s)", "dtype": "real", "default": "20.0"},
                  {"id": "threshold", "label": "Threshold", "dtype": "real", "default": "2.5"},
                  {"id": "iono_file", "label": "Iono file", "dtype": "file_open", "default": "''"},

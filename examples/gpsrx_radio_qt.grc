@@ -148,6 +148,8 @@ blocks:
     iono_file: '""'
     fix_file: fix_file
     hold: 'False'
+    engine: '''cpp'''
+    comment: live needs the C++ Channel (util/build_win.cmd, or cmake on Linux)
   states:
     bus_sink: false
     bus_source: false

@@ -51,7 +51,7 @@ def build_replay():
     y = 220
     b = source(y) + [
         blk("rx", "gpsrx_receiver", 560, y - 40, samp_rate="samp_rate", n_channels=8, interval_s=100.0, threshold=2.5,
-            iono_file='""', fix_file="fix_file", hold="True",
+            iono_file='""', fix_file="fix_file", hold="True", engine="'auto'",
             comment="Acquisition -> 8 x (Channel -> Nav Decoder) -> PVT"),
         blk("status", "gpsrx_status", 900, y - 40, every_s=2.0, log_file='""',
             comment="quality only; the position goes to the fix file"),
@@ -77,8 +77,9 @@ def build_canvas(n=6):
          ["pvt", "fix", "status", "fix"]]
     for s in range(n):
         yy = y + 120 * s
-        b.append(blk(f"ch{s}", "gpsrx_channel", 720, yy, samp_rate="samp_rate", slot=s, pll_bw=18.0, dll_bw=2.0,
-                     obs_every_ms=1000, comment=f"slot {s}: NCO, E/P/L, PLL, DLL; counts code epochs"))
+        b.append(blk(f"ch{s}", "gpsrx_channel_cc" if s % 2 else "gpsrx_channel", 720, yy, samp_rate="samp_rate", slot=s,
+                     pll_bw=18.0, dll_bw=2.0, obs_every_ms=1000,
+                     comment=f"slot {s}: NCO, E/P/L, PLL, DLL; counts code epochs" + (" (C++)" if s % 2 else " (Python)")))
         b.append(blk(f"nav{s}", "gpsrx_nav_decoder", 1020, yy, slot=s, comment="bits -> words -> subframes -> anchor"))
         c += [["to_c", "0", f"ch{s}", "0"], ["acq", "assign", f"ch{s}", "assign"], [f"ch{s}", "status", "acq", "status"],
               [f"ch{s}", "0", f"nav{s}", "0"], [f"ch{s}", "obs", "pvt", "obs"], [f"nav{s}", "nav", "pvt", "nav"],
@@ -92,7 +93,7 @@ def build_replay_qt():
     y = 220
     b = source(y) + [
         blk("rx", "gpsrx_receiver", 560, y - 40, samp_rate="samp_rate", n_channels=8, interval_s=100.0, threshold=2.5,
-            iono_file='""', fix_file="fix_file", hold="True"),
+            iono_file='""', fix_file="fix_file", hold="True", engine="'auto'"),
         blk("panel", "gpsrx_sky_panel", 900, y - 40, label='"GPS receiver (replay)"', gui_hint="0,0,1,1"),
     ]
     c = [["src", "0", "to_c", "0"], ["to_c", "0", "rx", "0"]] + [["rx", p, "panel", p] for p in
@@ -117,7 +118,8 @@ def build_radio_qt():
             samp_rate="samp_rate", center_freq0="1575.42e6", bandwidth0="2.5e6", antenna0="antenna", gain0="gain",
             agc0=False, minoutbuf=str(1 << 22), comment="L1 C/A: 1575.42 MHz"),
         blk("rx", "gpsrx_receiver", 560, y - 40, samp_rate="samp_rate", n_channels=8, interval_s=20.0, threshold=2.5,
-            iono_file='""', fix_file="fix_file", hold="False"),
+            iono_file='""', fix_file="fix_file", hold="False", engine="'cpp'",
+            comment="live needs the C++ Channel (util/build_win.cmd, or cmake on Linux)"),
         blk("spectrum", "qtgui_freq_sink_x", 330, y - 260, type="complex", name='"L1 baseband (the signal is below the noise)"',
             fftsize=1024, fc=0, bw="samp_rate", average=0.02, gui_hint="0,0,1,1"),
         blk("panel", "gpsrx_sky_panel", 900, y - 40, label='"GPS receiver"', gui_hint="1,0,1,1"),

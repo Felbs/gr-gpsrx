@@ -161,7 +161,7 @@ blocks:
     pll_bw: '18.0'
     dll_bw: '2.0'
     obs_every_ms: '1000'
-    comment: 'slot 0: NCO, E/P/L, PLL, DLL; counts code epochs'
+    comment: 'slot 0: NCO, E/P/L, PLL, DLL; counts code epochs (Python)'
   states:
     bus_sink: false
     bus_source: false
@@ -186,14 +186,14 @@ blocks:
     rotation: 0
     state: enabled
 - name: ch1
-  id: gpsrx_channel
+  id: gpsrx_channel_cc
   parameters:
     samp_rate: samp_rate
     slot: '1'
     pll_bw: '18.0'
     dll_bw: '2.0'
     obs_every_ms: '1000'
-    comment: 'slot 1: NCO, E/P/L, PLL, DLL; counts code epochs'
+    comment: 'slot 1: NCO, E/P/L, PLL, DLL; counts code epochs (C++)'
   states:
     bus_sink: false
     bus_source: false
@@ -225,7 +225,7 @@ blocks:
     pll_bw: '18.0'
     dll_bw: '2.0'
     obs_every_ms: '1000'
-    comment: 'slot 2: NCO, E/P/L, PLL, DLL; counts code epochs'
+    comment: 'slot 2: NCO, E/P/L, PLL, DLL; counts code epochs (Python)'
   states:
     bus_sink: false
     bus_source: false
@@ -250,14 +250,14 @@ blocks:
     rotation: 0
     state: enabled
 - name: ch3
-  id: gpsrx_channel
+  id: gpsrx_channel_cc
   parameters:
     samp_rate: samp_rate
     slot: '3'
     pll_bw: '18.0'
     dll_bw: '2.0'
     obs_every_ms: '1000'
-    comment: 'slot 3: NCO, E/P/L, PLL, DLL; counts code epochs'
+    comment: 'slot 3: NCO, E/P/L, PLL, DLL; counts code epochs (C++)'
   states:
     bus_sink: false
     bus_source: false
@@ -289,7 +289,7 @@ blocks:
     pll_bw: '18.0'
     dll_bw: '2.0'
     obs_every_ms: '1000'
-    comment: 'slot 4: NCO, E/P/L, PLL, DLL; counts code epochs'
+    comment: 'slot 4: NCO, E/P/L, PLL, DLL; counts code epochs (Python)'
   states:
     bus_sink: false
     bus_source: false
@@ -314,14 +314,14 @@ blocks:
     rotation: 0
     state: enabled
 - name: ch5
-  id: gpsrx_channel
+  id: gpsrx_channel_cc
   parameters:
     samp_rate: samp_rate
     slot: '5'
     pll_bw: '18.0'
     dll_bw: '2.0'
     obs_every_ms: '1000'
-    comment: 'slot 5: NCO, E/P/L, PLL, DLL; counts code epochs'
+    comment: 'slot 5: NCO, E/P/L, PLL, DLL; counts code epochs (C++)'
   states:
     bus_sink: false
     bus_source: false

@@ -3,8 +3,8 @@
 gr-gpsrx: a GPS L1 C/A receiver made of GNU Radio blocks. The one you can read.
 '''
 try:
-    from .gpsrx_python import *          # no compiled bindings yet (Python phase)
-except ModuleNotFoundError:
+    from .gpsrx_python import *          # the C++ blocks, when built (channel_cc)
+except ImportError:                      # not built, or GNU Radio's libraries not loadable here
     pass
 
 from . import acquire, cacode, nav, pvt, synth, track     # the engines: importable without GNU Radio

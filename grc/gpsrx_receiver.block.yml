@@ -8,12 +8,21 @@ documentation: 'The whole receiver in one block: Acquisition -> N x (Channel -> 
 
   ''nav'') for a Status block or a Message Debug. The same wiring laid out block by block is
 
-  examples/gpsrx_canvas.grc. Hold: file replay only.'
+  examples/gpsrx_canvas.grc. Hold: file replay only. Channel engine: the C++
+
+  Channel keeps up with a radio; the Python one is for replay and reading.'
 templates: {imports: from gnuradio import gpsrx, make: 'gpsrx.receiver(samp_rate=${samp_rate}, n_channels=${n_channels},
-    interval_s=${interval_s}, threshold=${threshold}, iono_file=${iono_file}, fix_file=${fix_file}, hold=${hold})'}
+    interval_s=${interval_s}, threshold=${threshold}, iono_file=${iono_file}, fix_file=${fix_file}, hold=${hold},
+    engine=${engine})'}
 parameters:
 - {id: samp_rate, label: Sample rate, dtype: real, default: samp_rate}
 - {id: n_channels, label: Channels, dtype: int, default: '8'}
+- id: engine
+  label: Channel engine
+  dtype: enum
+  default: '''auto'''
+  options: ['''auto''', '''cpp''', '''python''']
+  option_labels: [C++ if built, C++ (live), Python (replay only)]
 - {id: interval_s, label: Search interval (s), dtype: real, default: '20.0'}
 - {id: threshold, label: Threshold, dtype: real, default: '2.5'}
 - {id: iono_file, label: Iono file, dtype: file_open, default: ''''''}

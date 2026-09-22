@@ -75,7 +75,9 @@ class pvt_solver(gr.basic_block):
             return
         with self._lock:
             self.obs[int(d["slot"])] = d
-            now = time.time()
+            # once per `min_interval` of STREAM time: the receiver's clock is the sample counter
+            # (a wall clock would give one fix per wall second, five per second of capture in replay)
+            now = float(d.get("epoch_sample", 0.0)) / self.fs
             if now - self._last < self.min_interval:
                 return
             chans = []

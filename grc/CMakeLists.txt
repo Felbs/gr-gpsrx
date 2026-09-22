@@ -9,6 +9,7 @@
 install(FILES
     gpsrx_acquisition.block.yml
     gpsrx_channel.block.yml
+    gpsrx_channel_cc.block.yml
     gpsrx_nav_decoder.block.yml
     gpsrx_pvt.block.yml
     gpsrx_status.block.yml
