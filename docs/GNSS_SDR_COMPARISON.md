@@ -93,3 +93,26 @@ independent oracle; warm start from a plain JSON file.
 Both are GPL-3, so their code may flow here - but every item above is a few dozen lines when
 written against our engine, and written that way it stays readable, which is the point of this
 receiver. The order is the order to build.
+
+## Borrows 1 and 2, done (same day)
+
+Two-stage tracking is in both channels (`pll_bw_narrow`, `dll_bw_narrow`, `coherent_ms`): once the
+channel finds the bit edges itself (sign-flip histogram, 3x clear, lock > 0.8), it hands the
+narrow loop the frequency AVERAGED over the last 100 periods, waits for a bit edge, then integrates
+E/P/L over whole 20 ms bits and runs the discriminators once per bit with narrow loops.
+
+Three things had to be learnt on the way, all measured on a synthetic eight-satellite sky:
+the narrow stage needs textbook loop gain (k = 1, not the 0.25 of the 1 ms stage - the discrete
+proportional path is 1.7 cycles per cycle of error at 20 ms otherwise, and every bandwidth tore
+itself apart); the first window must start ON a bit edge (a partial window with the error history
+reset kicked a loop 18 Hz off); and the handover must start from the averaged frequency, because
+the 1 ms loop jitters +-5-10 Hz and a 20 ms window pulls in only ~10 Hz.
+
+| capture | before | 15 Hz narrow (default) | 5 Hz narrow (static) | gnss-sdr tuned |
+|---|---|---|---|---|
+| attic 240 s, 15-epoch scatter | 11.4 m | 9.7 m | **8.7 m** | 7.6 m |
+| drive leg 52 mph, fixes / median rms | 63 / 0.9 m | 57 / **0.7 m** | (loses lock: too narrow for a car) | - |
+
+8 Hz was too narrow for the car (a +4.2 kHz satellite dropped to lock 0.56); 20 Hz gained nothing
+over 15; so 15 Hz is the default and a static user sets 5. Remaining gap to gnss-sdr's tracking:
+its 3rd-order PLL filter. Next on the list: C/N0, weighted least squares, RAIM.

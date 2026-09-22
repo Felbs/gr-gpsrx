@@ -62,8 +62,10 @@ static inline int chip_index(double phase_chips)
     return i < 0 ? i + tracker::CODE_LEN : i;
 }
 
-tracker::tracker(int prn_, double fs_, double doppler_hz, double code_phase_samples, double pll_bw, double dll_bw)
-    : prn(prn_), fs(fs_), carrier_hz(doppler_hz), doppler0_(doppler_hz)
+tracker::tracker(int prn_, double fs_, double doppler_hz, double code_phase_samples, double pll_bw, double dll_bw,
+                 double pll_bw_narrow, double dll_bw_narrow, int coherent_ms)
+    : prn(prn_), fs(fs_), carrier_hz(doppler_hz), doppler0_(doppler_hz),
+      pll_bw_narrow_(pll_bw_narrow), dll_bw_narrow_(dll_bw_narrow), coh_(pll_bw_narrow > 0 ? coherent_ms : 1)
 {
     ca_code(prn, code_);
     // acquisition hands over the sample at which the code starts; the phase at sample 0 is
@@ -112,32 +114,89 @@ std::complex<double> tracker::step(const std::complex<float>* x, int n)
     samples_in += n;
     epochs += 1;
     const double ip = P.real(), qp = P.imag();
-    // 3. PLL: Costas discriminator atan(Q/I) (NOT atan2: blind to the data flips), error in
-    //    cycles, loop filter -> frequency correction; the NCO phase accumulation integrates it
-    const double e_pll = ip != 0.0 ? std::atan(qp / ip) / (2.0 * M_PI) : 0.0;
-    carr_corr_ += (pll_t2_ * (e_pll - pll_e_prev) + dt * e_pll) / pll_t1_;
-    pll_e_prev = e_pll;
-    carrier_hz = doppler0_ + carr_corr_;
-    // 4. DLL: normalised early-minus-late envelope, carrier-aided code rate
-    const double Em = std::abs(E), Lm = std::abs(L);
-    const double e_dll = (Em + Lm) > 0 ? 0.5 * (Em - Lm) / (Em + Lm) : 0.0;
-    code_dop_ += (dll_t2_ * (e_dll - dll_e_prev) + dt * e_dll) / dll_t1_;
-    dll_e_prev = e_dll;
-    code_rate = CODE_RATE + carrier_hz * CARRIER_TO_CODE + code_dop_;
     // lock indicator (I^2 - Q^2) / (I^2 + Q^2), smoothed over ~50 periods
     const double p = ip * ip + qp * qp;
     const double li = p > 0 ? (ip * ip - qp * qp) / p : 0.0;
     lock = 0.98 * lock + 0.02 * li;
+    // stage 1: bit sync (where, mod 20, does the prompt's sign flip?) and the averaged frequency
+    if (bit_offset < 0 && coh_ > 1) {
+        f_avg_ = have_f_avg_ ? 0.99 * f_avg_ + 0.01 * carrier_hz : carrier_hz;
+        have_f_avg_ = true;
+        bit_sync(ip);
+    }
+    // stage 2: coherent window over a whole bit, one loop update per window (track.py)
+    std::complex<double> Ew = E, Pw = P, Lw = L;
+    double dt_loop = dt;
+    if (bit_offset >= 0) {
+        const bool at_edge = ((epochs - bit_offset) % coh_ + coh_) % coh_ == 0;
+        if (!aligned_) { // no loop update until the first bit edge (a partial window kicks the loop)
+            aligned_ = at_edge;
+            return P;
+        }
+        acc_[0] += E; acc_[1] += P; acc_[2] += L;
+        acc_dt_ += dt;
+        if (!at_edge)
+            return P;
+        Ew = acc_[0]; Pw = acc_[1]; Lw = acc_[2];
+        dt_loop = acc_dt_;
+        acc_[0] = acc_[1] = acc_[2] = 0;
+        acc_dt_ = 0.0;
+    }
+    const double ipw = Pw.real(), qpw = Pw.imag();
+    // 3. PLL: Costas discriminator atan(Q/I) (NOT atan2: blind to the data flips), error in
+    //    cycles, loop filter -> frequency correction; the NCO phase accumulation integrates it
+    const double e_pll = ipw != 0.0 ? std::atan(qpw / ipw) / (2.0 * M_PI) : 0.0;
+    carr_corr_ += (pll_t2_ * (e_pll - pll_e_prev) + dt_loop * e_pll) / pll_t1_;
+    pll_e_prev = e_pll;
+    carrier_hz = doppler0_ + carr_corr_;
+    // 4. DLL: normalised early-minus-late envelope, carrier-aided code rate
+    const double Em = std::abs(Ew), Lm = std::abs(Lw);
+    const double e_dll = (Em + Lm) > 0 ? 0.5 * (Em - Lm) / (Em + Lm) : 0.0;
+    code_dop_ += (dll_t2_ * (e_dll - dll_e_prev) + dt_loop * e_dll) / dll_t1_;
+    dll_e_prev = e_dll;
+    code_rate = CODE_RATE + carrier_hz * CARRIER_TO_CODE + code_dop_;
     return P;
 }
 
-// ---- the block ------------------------------------------------------------------------------
-channel_cc::sptr channel_cc::make(double samp_rate, int slot, double pll_bw, double dll_bw, int obs_every_ms)
+void tracker::bit_sync(double ip)
 {
-    return gnuradio::make_block_sptr<channel_cc_impl>(samp_rate, slot, pll_bw, dll_bw, obs_every_ms);
+    // this period's index is epochs - 1 (epochs already counts it)
+    if (last_ip_ != 0.0 && (ip < 0) != (last_ip_ < 0) && lock > 0.5)
+        flips_[(epochs - 1) % 20]++;
+    last_ip_ = ip;
+    if (epochs < 300 || lock <= 0.8)
+        return;
+    int64_t top = 0, second = 0, arg = 0;
+    for (int i = 0; i < 20; i++) {
+        if (flips_[i] > top) { second = top; top = flips_[i]; arg = i; }
+        else if (flips_[i] > second) second = flips_[i];
+    }
+    if (top >= 8 && top >= 3 * std::max<int64_t>(second, 1)) {
+        bit_offset = (int)arg;
+        // k = 1 for the narrow stage (see track.py: with k = 0.25 the 20 ms loop is over unity gain)
+        loop_gains(pll_bw_narrow_, 1.0, pll_t1_, pll_t2_);
+        loop_gains(dll_bw_narrow_, 1.0, dll_t1_, dll_t2_);
+        pll_e_prev = dll_e_prev = 0.0;
+        acc_[0] = acc_[1] = acc_[2] = 0;
+        acc_dt_ = 0.0;
+        aligned_ = false;
+        if (have_f_avg_) { // start from the averaged frequency, not the jittering instantaneous one
+            carr_corr_ = f_avg_ - doppler0_;
+            carrier_hz = f_avg_;
+        }
+    }
 }
 
-channel_cc_impl::channel_cc_impl(double samp_rate, int slot, double pll_bw, double dll_bw, int obs_every_ms)
+// ---- the block ------------------------------------------------------------------------------
+channel_cc::sptr channel_cc::make(double samp_rate, int slot, double pll_bw, double dll_bw, int obs_every_ms,
+                                  double pll_bw_narrow, double dll_bw_narrow, int coherent_ms)
+{
+    return gnuradio::make_block_sptr<channel_cc_impl>(samp_rate, slot, pll_bw, dll_bw, obs_every_ms,
+                                                      pll_bw_narrow, dll_bw_narrow, coherent_ms);
+}
+
+channel_cc_impl::channel_cc_impl(double samp_rate, int slot, double pll_bw, double dll_bw, int obs_every_ms,
+                                 double pll_bw_narrow, double dll_bw_narrow, int coherent_ms)
     : gr::block("gpsrx_channel_cc",
                 gr::io_signature::make(1, 1, sizeof(gr_complex)),
                 gr::io_signature::make(1, 1, sizeof(gr_complex))),
@@ -145,6 +204,9 @@ channel_cc_impl::channel_cc_impl(double samp_rate, int slot, double pll_bw, doub
       slot_(slot),
       pll_bw_(pll_bw),
       dll_bw_(dll_bw),
+      pll_bw_narrow_(pll_bw_narrow),
+      dll_bw_narrow_(dll_bw_narrow),
+      coherent_ms_(coherent_ms),
       obs_every_(obs_every_ms),
       batch_(3)
 {
@@ -240,7 +302,7 @@ int channel_cc_impl::general_work(int noutput_items,
         double rel = std::fmod(pend_sample_ - (double)start, period);
         if (rel < 0)
             rel += period;
-        eng_.reset(new tracker(pend_prn_, fs_, pend_dop_, rel, pll_bw_, dll_bw_));
+        eng_.reset(new tracker(pend_prn_, fs_, pend_dop_, rel, pll_bw_, dll_bw_, pll_bw_narrow_, dll_bw_narrow_, coherent_ms_));
         t0_abs_ = start;
         lost_run_ = 0;
         have_pending_ = false;

@@ -35,11 +35,14 @@ LOST_PERIODS = 500
 
 
 class channel(gr.basic_block):
-    def __init__(self, samp_rate=2.048e6, slot=0, pll_bw=18.0, dll_bw=2.0, obs_every_ms=1000, batch_ms=3):
+    def __init__(self, samp_rate=2.048e6, slot=0, pll_bw=18.0, dll_bw=2.0, obs_every_ms=1000, batch_ms=3,
+                 pll_bw_narrow=15.0, dll_bw_narrow=0.5, coherent_ms=20):
         gr.basic_block.__init__(self, name="gpsrx_channel", in_sig=[np.complex64], out_sig=[np.complex64])
         self.fs = float(samp_rate)
         self.slot = int(slot)
         self.pll_bw, self.dll_bw = float(pll_bw), float(dll_bw)
+        self.pll_bw_narrow, self.dll_bw_narrow = float(pll_bw_narrow), float(dll_bw_narrow)
+        self.coherent_ms = int(coherent_ms)
         self.obs_every = int(obs_every_ms)
         self.eng = None
         self.prn = 0
@@ -101,7 +104,9 @@ class channel(gr.basic_block):
                 # a 7 s search). Wrap with the true period.
                 period = self.fs * CODE_LEN / (CODE_RATE * (1.0 + dop / L1_HZ))
                 rel = (sample - start) % period
-                self.eng = Engine(prn, self.fs, dop, rel, pll_bw=self.pll_bw, dll_bw=self.dll_bw)
+                self.eng = Engine(prn, self.fs, dop, rel, pll_bw=self.pll_bw, dll_bw=self.dll_bw,
+                                  pll_bw_narrow=self.pll_bw_narrow, dll_bw_narrow=self.dll_bw_narrow,
+                                  coherent_ms=self.coherent_ms)
                 self._t0_abs = start                       # engine sample k == absolute start + k
                 self._lost_run = 0
                 # the prompt stream carries the assignment as a tag on its first item: the Nav

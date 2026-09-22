@@ -49,23 +49,32 @@ blind to the data flips), early-late DLL, carrier-aided code rate. Consumes exac
 code period per step, so its period count IS the satellite's clock; 'obs' reports once a
 second the period count and the code epoch's arrival as a fractional input sample - the
 two numbers a pseudorange is made of.
+Two stages: wide loops and 1 ms integration to pull in, then - once the data-bit edges
+are found - NARROW loops and coherent integration over a whole bit (as gnss-sdr does).
+Static antenna: 5 Hz narrow PLL; moving: 8-15 Hz. 0 disables the second stage.
 Idle until 'assign' names its slot (from the Acquisition block). 'status' says tracking /
 lost / idle. Slot: this channel's number; Acquisition assigns by it.""",
          make="gpsrx.channel(samp_rate=${samp_rate}, slot=${slot}, pll_bw=${pll_bw}, dll_bw=${dll_bw}, "
-              "obs_every_ms=${obs_every_ms})",
+              "obs_every_ms=${obs_every_ms}, pll_bw_narrow=${pll_bw_narrow}, dll_bw_narrow=${dll_bw_narrow}, coherent_ms=${coherent_ms})",
          params=[RATE, SLOT, {"id": "pll_bw", "label": "PLL bandwidth (Hz)", "dtype": "real", "default": "18.0"},
                  {"id": "dll_bw", "label": "DLL bandwidth (Hz)", "dtype": "real", "default": "2.0"},
-                 {"id": "obs_every_ms", "label": "Observable every (ms)", "dtype": "int", "default": "1000", "hide": "part"}],
+                 {"id": "obs_every_ms", "label": "Observable every (ms)", "dtype": "int", "default": "1000", "hide": "part"},
+                 {"id": "pll_bw_narrow", "label": "PLL bandwidth after bit sync (Hz)", "dtype": "real", "default": "15.0"},
+                 {"id": "dll_bw_narrow", "label": "DLL bandwidth after bit sync (Hz)", "dtype": "real", "default": "0.5"},
+                 {"id": "coherent_ms", "label": "Coherent integration after bit sync (ms)", "dtype": "int", "default": "20"}],
          inputs=[{"domain": "stream", "dtype": "complex"}, {"domain": "message", "id": "assign"}],
          outputs=[{"domain": "stream", "dtype": "complex"}, {"domain": "message", "id": "obs"},
                   {"domain": "message", "id": "status", "optional": True}]),
     dict(id="gpsrx_channel_cc", label="GPS Channel (C++)", doc="""The same Channel as GPS Channel, in C++: eight of them run at 15x real time (measured; the
 Python ones at 0.17x). Same ports, same tag, same messages, the same arithmetic line for
 line - a Nav Decoder or PVT cannot tell which it is wired to. Use this one live.""",
-         make="gpsrx.channel_cc(${samp_rate}, ${slot}, ${pll_bw}, ${dll_bw}, ${obs_every_ms})",
+         make="gpsrx.channel_cc(${samp_rate}, ${slot}, ${pll_bw}, ${dll_bw}, ${obs_every_ms}, ${pll_bw_narrow}, ${dll_bw_narrow}, ${coherent_ms})",
          params=[RATE, SLOT, {"id": "pll_bw", "label": "PLL bandwidth (Hz)", "dtype": "real", "default": "18.0"},
                  {"id": "dll_bw", "label": "DLL bandwidth (Hz)", "dtype": "real", "default": "2.0"},
-                 {"id": "obs_every_ms", "label": "Observable every (ms)", "dtype": "int", "default": "1000", "hide": "part"}],
+                 {"id": "obs_every_ms", "label": "Observable every (ms)", "dtype": "int", "default": "1000", "hide": "part"},
+                 {"id": "pll_bw_narrow", "label": "PLL bandwidth after bit sync (Hz)", "dtype": "real", "default": "15.0"},
+                 {"id": "dll_bw_narrow", "label": "DLL bandwidth after bit sync (Hz)", "dtype": "real", "default": "0.5"},
+                 {"id": "coherent_ms", "label": "Coherent integration after bit sync (ms)", "dtype": "int", "default": "20"}],
          inputs=[{"domain": "stream", "dtype": "complex"}, {"domain": "message", "id": "assign"}],
          outputs=[{"domain": "stream", "dtype": "complex"}, {"domain": "message", "id": "obs"},
                   {"domain": "message", "id": "status", "optional": True}]),

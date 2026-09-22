@@ -37,6 +37,9 @@ void bind_channel_cc(py::module& m)
         std::shared_ptr<channel_cc>>(m, "channel_cc", D(channel_cc))
 
         .def(py::init(&channel_cc::make),
+           py::arg("samp_rate"), py::arg("slot"), py::arg("pll_bw") = 18.0, py::arg("dll_bw") = 2.0,
+           py::arg("obs_every_ms") = 1000, py::arg("pll_bw_narrow") = 15.0, py::arg("dll_bw_narrow") = 0.5,
+           py::arg("coherent_ms") = 20,
            D(channel_cc,make)
         )
         

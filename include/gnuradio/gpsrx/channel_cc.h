@@ -38,9 +38,12 @@ public:
      * \param pll_bw Costas loop noise bandwidth, Hz
      * \param dll_bw code loop noise bandwidth, Hz
      * \param obs_every_ms code periods between 'obs' messages
+     * \param pll_bw_narrow PLL bandwidth after bit sync (0 = stay in stage 1); 5 Hz static, 8-15 Hz moving
+     * \param dll_bw_narrow DLL bandwidth after bit sync
+     * \param coherent_ms coherent integration after bit sync, a divisor of 20
      */
-    static sptr
-    make(double samp_rate, int slot, double pll_bw = 18.0, double dll_bw = 2.0, int obs_every_ms = 1000);
+    static sptr make(double samp_rate, int slot, double pll_bw = 18.0, double dll_bw = 2.0, int obs_every_ms = 1000,
+                     double pll_bw_narrow = 15.0, double dll_bw_narrow = 0.5, int coherent_ms = 20);
 };
 
 } // namespace gpsrx

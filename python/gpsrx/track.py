@@ -66,8 +66,24 @@ class Channel:
     RAMP_TOL = 5.0          # Hz: rebuild the NCO ramp when the Doppler estimate moves this much (5 Hz over 1 ms = 1.8 deg, under the loop noise)
 
     def __init__(self, prn, fs, doppler_hz, code_phase_samples, pll_bw=18.0, dll_bw=2.0, spacing=0.5,
-                 open_loop=False):
+                 open_loop=False, pll_bw_narrow=15.0, dll_bw_narrow=0.5, coherent_ms=20):
+        # Two stages, as gnss-sdr does it: wide loops and 1 ms integration to pull in; then, once
+        # the data-bit edges are known, NARROW loops and coherent integration over a whole bit
+        # (coherent_ms, a divisor of 20). The correlators sum across the bit - 13 dB more
+        # coherent gain - and the discriminators run once per bit on a 20x quieter number.
+        # Measured before this (head-to-head, docs/GNSS_SDR_COMPARISON.md): 15-epoch scatter
+        # 11.4 m here vs 7.6 m for gnss-sdr with these two things on. pll_bw_narrow=0 disables.
         self.prn, self.fs = prn, float(fs)
+        self.pll_bw_narrow, self.dll_bw_narrow = float(pll_bw_narrow), float(dll_bw_narrow)
+        self.coh = int(coherent_ms) if pll_bw_narrow else 1
+        self.bit_offset = None                 # period index (mod 20) at which a data bit begins
+        self._flips = np.zeros(20, np.int64)   # sign-flip histogram for bit sync
+        self._last_ip = 0.0
+        self._acc = np.zeros(3, complex)       # E, P, L accumulated over the coherent window
+        self._acc_n = 0
+        self._acc_dt = 0.0
+        self._aligned = False
+        self._f_avg = None                     # carrier Doppler averaged over ~100 periods (stage 1)
         # acquisition hands over a code phase in SAMPLES (the sample at which the code starts);
         # the code phase in chips at sample 0 is therefore -(that) * chips/sample, modulo 1023
         chips_per_sample = CODE_RATE / self.fs
@@ -135,29 +151,86 @@ class Channel:
         s.samples_in += n
         s.epochs += 1
         if not self.open_loop:
-            # 3. PLL: Costas discriminator (atan(Q/I): a data-bit sign flip does not move it),
-            #    error in cycles, through the loop filter into a frequency correction; the NCO's
-            #    phase accumulation (above) is the loop's integrator.
-            # atan(Q/I), NOT atan2: the single-argument form is blind to a 180-degree data flip
-            # (atan2 read a bit transition as a 165-degree phase error and slewed the carrier 100 Hz)
-            e_pll = np.arctan(qp / ip) / (2 * np.pi) if ip != 0 else 0.0       # cycles, (-1/4, 1/4)
-            self.carr_corr += (self.pll_t2 * (e_pll - s.pll_e_prev) + dt * e_pll) / self.pll_t1
-            s.pll_e_prev = e_pll
-            s.carrier_hz = self.doppler0 + self.carr_corr
-            # 4. DLL: normalised early-minus-late envelope, error in chips, the same filter,
-            #    carrier-aided (the carrier loop already knows the Doppler; this trims the residual)
-            E, L = np.hypot(ie, qe), np.hypot(il, ql)
-            e_dll = 0.5 * (E - L) / (E + L) if (E + L) > 0 else 0.0            # chips
-            self.code_dop += (self.dll_t2 * (e_dll - s.dll_e_prev) + dt * e_dll) / self.dll_t1
-            s.dll_e_prev = e_dll
-            s.code_rate = CODE_RATE + s.carrier_hz * CARRIER_TO_CODE + self.code_dop
             # PLL lock indicator: cos(2 x phase error) = (I^2 - Q^2) / (I^2 + Q^2), averaged over
             # ~50 periods; +1 = all the energy in I, 0 = random phase. Sign-blind, so data bits
             # do not disturb it. (Kaplan & Hegarty §5.11 phase-lock detector.)
             p = ip * ip + qp * qp
             li = (ip * ip - qp * qp) / p if p > 0 else 0.0
             s.lock = 0.98 * s.lock + 0.02 * li
+            # bit sync (stage 1 only): where, mod 20, does the prompt's sign flip?
+            if self.bit_offset is None and self.coh > 1:
+                self._f_avg = s.carrier_hz if self._f_avg is None else 0.99 * self._f_avg + 0.01 * s.carrier_hz
+                self._bit_sync(ip)
+            # coherent window: a whole data bit once the edges are known, one period before
+            in_window = self.bit_offset is not None
+            if in_window:
+                at_edge = (s.epochs - self.bit_offset) % self.coh == 0
+                if not self._aligned:
+                    # between bit sync and the first bit edge: no loop update at all. A partial
+                    # first window with the error history reset kicked the narrow loop 18 Hz
+                    # off on a synthetic sky (measured); the NCO free-runs a few ms instead.
+                    self._aligned = at_edge
+                    return ip, qp
+                self._acc += (ie + 1j * qe, ip + 1j * qp, il + 1j * ql)
+                self._acc_n += 1
+                self._acc_dt += dt
+                # the window ends on the period BEFORE a bit edge: the next period starts a bit
+                if not at_edge:
+                    return ip, qp
+                (ie, qe), (ip_, qp_), (il, ql) = [(c.real, c.imag) for c in self._acc]
+                dt_loop = self._acc_dt
+                self._acc[:] = 0
+                self._acc_n, self._acc_dt = 0, 0.0
+            else:
+                ip_, qp_, dt_loop = ip, qp, dt
+            # 3. PLL: Costas discriminator (atan(Q/I): a data-bit sign flip does not move it),
+            #    error in cycles, through the loop filter into a frequency correction; the NCO's
+            #    phase accumulation (above) is the loop's integrator.
+            # atan(Q/I), NOT atan2: the single-argument form is blind to a 180-degree data flip
+            # (atan2 read a bit transition as a 165-degree phase error and slewed the carrier 100 Hz)
+            e_pll = np.arctan(qp_ / ip_) / (2 * np.pi) if ip_ != 0 else 0.0     # cycles, (-1/4, 1/4)
+            self.carr_corr += (self.pll_t2 * (e_pll - s.pll_e_prev) + dt_loop * e_pll) / self.pll_t1
+            s.pll_e_prev = e_pll
+            s.carrier_hz = self.doppler0 + self.carr_corr
+            # 4. DLL: normalised early-minus-late envelope, error in chips, the same filter,
+            #    carrier-aided (the carrier loop already knows the Doppler; this trims the residual)
+            E, L = np.hypot(ie, qe), np.hypot(il, ql)
+            e_dll = 0.5 * (E - L) / (E + L) if (E + L) > 0 else 0.0            # chips
+            self.code_dop += (self.dll_t2 * (e_dll - s.dll_e_prev) + dt_loop * e_dll) / self.dll_t1
+            s.dll_e_prev = e_dll
+            s.code_rate = CODE_RATE + s.carrier_hz * CARRIER_TO_CODE + self.code_dop
         return ip, qp
+
+    def _bit_sync(self, ip):
+        """Stage 1 -> 2: after the loops have settled, histogram the prompt's sign flips mod 20;
+        the bit edge collects them. When a bin stands 3x clear of the runner-up with at least 8
+        flips, the edges are known: narrow the loops and start integrating over whole bits."""
+        s = self.s
+        # s.epochs has already counted this period, so THIS period's index is epochs - 1
+        if self._last_ip != 0.0 and np.sign(ip) != np.sign(self._last_ip) and s.lock > 0.5:
+            self._flips[(s.epochs - 1) % 20] += 1
+        self._last_ip = ip
+        if s.epochs >= 300 and self._flips.max() >= 8 and s.lock > 0.8:
+            top = np.sort(self._flips)[::-1]
+            if top[0] >= 3 * max(top[1], 1):
+                # a flip counted for period k means period k is the first of a new bit; a window
+                # therefore ends after period k-1, i.e. when epochs == k (mod 20)
+                self.bit_offset = int(np.argmax(self._flips))
+                # k=1 here, not the 0.25 of the 1 ms stage: the proportional path of this filter
+                # form corrects (2 zeta wn / k) * T cycles per cycle of error per update, 1.7 at
+                # T=20 ms with k=0.25 - over unity, and the loop tore itself apart on every
+                # bandwidth tried (measured); with k=1 it is 0.4 and 5-15 Hz all hold
+                self.pll_t1, self.pll_t2 = loop_gains(self.pll_bw_narrow, k=1.0)
+                self.dll_t1, self.dll_t2 = loop_gains(self.dll_bw_narrow)
+                # start the narrow loop from the AVERAGED frequency: the 1 ms loop jitters
+                # +-5-10 Hz, and a 20 ms window can only pull in ~10 Hz (a handover that
+                # landed at +10 Hz drove one synthetic bird to a false lock 18 Hz off, measured)
+                if self._f_avg is not None:
+                    self.carr_corr = self._f_avg - self.doppler0
+                    s.carrier_hz = self._f_avg
+                s.pll_e_prev = s.dll_e_prev = 0.0
+                self._acc[:] = 0
+                self._acc_n, self._acc_dt = 0, 0.0
 
     # ---- the observable ------------------------------------------------------------------
     def observable(self):
