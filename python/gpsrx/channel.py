@@ -27,6 +27,7 @@ import numpy as np
 import pmt
 from gnuradio import gr
 
+from .cacode import CODE_LEN, CODE_RATE, L1_HZ
 from .track import Channel as Engine
 
 LOST_LOCK = 0.2            # PLL lock indicator below this for LOST_PERIODS periods = lost
@@ -63,6 +64,8 @@ class channel(gr.basic_block):
         d = pmt.to_python(msg)
         if not isinstance(d, dict):
             return
+        if "slot" in d and int(d["slot"]) != self.slot:
+            return                                         # every channel hears every assignment
         with self._lock:
             prn = int(d.get("prn", 0))
             if prn <= 0:
@@ -72,7 +75,7 @@ class channel(gr.basic_block):
             # 'sample' = the absolute input sample index at which the code starts (acquisition's
             # code phase, made absolute); the engine wants it relative to the first sample it sees,
             # so remember the absolute index and convert in work()
-            self._pending = (prn, float(d.get("doppler_hz", 0.0)), int(d.get("sample", 0)))
+            self._pending = (prn, float(d.get("doppler_hz", 0.0)), float(d.get("sample", 0)))
             self.eng = None
             self.prn = prn
 
@@ -92,11 +95,19 @@ class channel(gr.basic_block):
                 prn, dop, sample = self._pending
                 start = self.nitems_read(0)
                 # the engine's sample 0 is THIS call's first sample; acquisition's code start is
-                # `sample` absolute -> relative code phase (may be negative: wrap into the period)
-                rel = (sample - start) % self._nominal()
+                # `sample` absolute, usually seconds in the past by the time the search finishes.
+                # The code repeats every 1023 chips AT ITS DOPPLER-SHIFTED RATE: extrapolating with
+                # the nominal period would be 3 chips/s wrong at 5 kHz of Doppler (22 chips over
+                # a 7 s search). Wrap with the true period.
+                period = self.fs * CODE_LEN / (CODE_RATE * (1.0 + dop / L1_HZ))
+                rel = (sample - start) % period
                 self.eng = Engine(prn, self.fs, dop, rel, pll_bw=self.pll_bw, dll_bw=self.dll_bw)
                 self._t0_abs = start                       # engine sample k == absolute start + k
                 self._lost_run = 0
+                # the prompt stream carries the assignment as a tag on its first item: the Nav
+                # Decoder downstream restarts its period count there, in step with the engine's
+                self.add_item_tag(0, self.nitems_written(0), pmt.intern("gpsrx_assign"),
+                                  pmt.to_pmt(dict(prn=prn, slot=self.slot)))
                 self._status("tracking", doppler_hz=dop)
             eng = self.eng
             consumed = produced = 0
@@ -122,7 +133,10 @@ class channel(gr.basic_block):
                     self._lost_run = 0
                 if self.n_periods % self.obs_every == 0:
                     o = eng.observable()
+                    # the engine counts samples from its own start; the solver needs the epoch's
+                    # arrival on the flowgraph's one clock, nitems_read: make both absolute
                     o["sample_abs"] = int(self._t0_abs + eng.s.samples_in)    # boundary of the period just done
+                    o["epoch_sample"] = float(self._t0_abs + o["epoch_sample"])
                     o["slot"] = self.slot
                     self.message_port_pub(pmt.intern("obs"), pmt.to_pmt(o))
                 if self._lost_run >= LOST_PERIODS:

@@ -7,9 +7,14 @@ try:
 except ModuleNotFoundError:
     pass
 
-from . import cacode, synth, track     # the engine: importable without GNU Radio
+from . import acquire, cacode, nav, pvt, synth, track     # the engines: importable without GNU Radio
 
 try:
+    from .acquisition import acquisition
     from .channel import channel
-except ImportError:                    # gnuradio not installed: the engine still works
+    from .nav_decoder import nav_decoder
+    from .pvt_solver import pvt_solver
+    from .receiver import receiver
+    from .status_sink import status_sink
+except ImportError:                    # gnuradio not installed: the engines still work
     pass
