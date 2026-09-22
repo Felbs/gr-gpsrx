@@ -281,7 +281,12 @@ def solve(entries, iono=None, weights=None, raim=True):
             "residuals_m": res.tolist(), "prns": [p for p, _, _, _ in prs], "azel": azel,
             "weights": (w / w.max()).tolist(), "cov_ecef": cov.tolist(),
             "raim": {"stat": best["stat"], "threshold": thr, "pass": bool(raim_pass), "excluded": excluded},
-            "altitude_plausible": bool(-500 < h < 9000)}
+            "altitude_plausible": bool(-500 < h < 9000),
+            # valid: on the planet AND the residuals are consistent (or there were too few
+            # satellites to tell). A detected fault that exclusion could not isolate is reported,
+            # but not averaged, not filtered, not believed (a drive leg: six satellites, 150 m rms,
+            # no single exclusion consistent - two bad anchors at once, measured)
+            "valid": bool(-500 < h < 9000 and raim_pass)}
 
 
 LAMBDA_L1 = C / 1575.42e6           # 0.1903 m per carrier cycle

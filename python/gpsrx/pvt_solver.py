@@ -164,16 +164,16 @@ class pvt_solver(gr.basic_block):
                 return
             self.n_fixes += 1
             kf_out = None
-            if self.kf is not None and fx["altitude_plausible"] and fx["raim"]["pass"]:
+            if self.kf is not None and fx["valid"]:
                 xk, reset = self.kf.update(fx["epoch_sample"] / self.fs, fx["ecef"], np.array(fx.get("cov_ecef")))
                 kf_out = dict(ecef_kf=xk[:3].tolist(), llh_kf=list(pvt.ecef_to_llh(xk[:3])),
                               vel_ecef=xk[3:].tolist(), speed_mps=float(np.linalg.norm(xk[3:])), kf_reset=bool(reset))
-            if fx["altitude_plausible"]:
+            if fx["valid"]:
                 self.fixes.append(fx["ecef"])
                 self.fixes = self.fixes[-self.average:]
             P = np.array(self.fixes) if self.fixes else None
             out = dict(ok=True, n=fx["n"], prns=fx["prns"], rms_m=fx["rms_m"], pdop=fx["pdop"],
-                       altitude_plausible=fx["altitude_plausible"], residuals_m=fx["residuals_m"],
+                       altitude_plausible=fx["altitude_plausible"], valid=fx["valid"], residuals_m=fx["residuals_m"],
                        ecef=fx["ecef"], llh=list(fx["llh"]), clock_bias_s=fx["clock_bias_s"],
                        epoch_sample=fx["epoch_sample"], iono=self.iono_src, count=self.n_fixes,
                        raim=fx["raim"], weights=fx["weights"], smoothed=fx.get("smoothed", {}), **(kf_out or {}),
@@ -192,7 +192,7 @@ class pvt_solver(gr.basic_block):
                 self.history.append(dict(count=self.n_fixes, n=fx["n"], prns=fx["prns"], rms_m=fx["rms_m"], excluded=fx["raim"]["excluded"],
                                          pdop=fx["pdop"], ecef=fx["ecef"], t_stream_s=fx["epoch_sample"] / self.fs,
                                          ecef_kf=(kf_out or {}).get("ecef_kf"), speed_mps=(kf_out or {}).get("speed_mps"),
-                                         altitude_plausible=fx["altitude_plausible"]))
+                                         altitude_plausible=fx["altitude_plausible"], valid=fx["valid"]))
                 os.makedirs(os.path.dirname(os.path.abspath(self.fix_file)), exist_ok=True)
                 with open(self.fix_file, "w") as fh:
                     json.dump(dict(out, history=self.history), fh, indent=1)

@@ -109,7 +109,9 @@ class status_sink(gr.basic_block):
             f = self.fix
             if f and f.get("ok"):
                 txt = (f" FIX #{f['count']}: {f['n']} satellites {f['prns']}, rms {f['rms_m']:.1f} m, PDOP {f['pdop']:.1f}, "
-                       f"altitude {'plausible' if f['altitude_plausible'] else 'NOT plausible'}, iono {f['iono']}")
+                       f"altitude {'plausible' if f['altitude_plausible'] else 'NOT plausible'}, "
+                       f"RAIM {'ok' if f.get('valid', True) else 'FAULT - not believed'}"
+                       + (f" (PRN {f['raim']['excluded']} excluded)" if f.get('raim', {}).get('excluded') else "") + f", iono {f['iono']}")
                 if "scatter_m" in f:
                     txt += f", {f['averaged']}-fix scatter {f['scatter_m']:.1f} m"
                 lines.append(txt)

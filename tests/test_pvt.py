@@ -155,3 +155,16 @@ def test_raim_names_and_excludes_the_one_bad_pseudorange():
     assert fx["raim"]["excluded"] == bad and fx["raim"]["pass"], fx["raim"]
     assert fx["n"] == 5 and bad not in fx["prns"]
     assert np.linalg.norm(np.array(fx["ecef"]) - rx) < 1.0, fx["rms_m"]
+
+
+def test_a_detected_fault_that_cannot_be_isolated_is_not_believed():
+    """Five satellites, one 300 m wrong: RAIM sees it (one degree of freedom) but cannot say
+    which; the fix must come back valid=False rather than as a position."""
+    t0 = 302400.0
+    rx = llh_to_ecef(*RX_LLH)
+    ephs = visible(rx, constellation(t0, rx), t0 + 100.0)[:5]
+    entries = [dict(prn=e["prn"], eph=e, t_sv=observe(rx, e, t0 + 100.0), cn0_db=45.0) for e in ephs]
+    entries[1]["t_sv"] -= 300.0 / pvt.C
+    fx = pvt.solve(entries)
+    assert not fx["raim"]["pass"] and fx["raim"]["excluded"] is None
+    assert fx["altitude_plausible"] and not fx["valid"]
