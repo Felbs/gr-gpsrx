@@ -34,6 +34,7 @@ class nav_decoder(gr.sync_block):
         self.system = "GPS"
         self.k0 = 0                                   # stream index of the current assignment's period 0
         self._tag = pmt.intern("gpsrx_assign")
+        self._slip_tag = pmt.intern("gpsrx_slip")
 
     def work(self, input_items, output_items):
         x = input_items[0]
@@ -41,10 +42,16 @@ class nav_decoder(gr.sync_block):
         r0 = self.nitems_read(0)
         tags = self.get_tags_in_window(0, 0, n, self._tag)
         cuts = [(t.offset - r0, pmt.to_python(t.value)) for t in tags]
+        # 'gpsrx_slip': the channel's bit grid moved (whole code periods missing from the stream);
+        # the decoder's own grid moved with it and must be found again - its period index does not
+        # restart (the channel's count did not), so the next anchor lands on the right period
+        slips = {t.offset - r0 for t in self.get_tags_in_window(0, 0, n, self._slip_tag)}
         pos = 0
         for i, (cut, d) in enumerate(cuts + [(n, None)]):
             if self.dec is not None:
                 for j in range(pos, cut):
+                    if j in slips and hasattr(self.dec, "resync"):
+                        self.dec.resync()
                     kept = self.dec.feed(float(x[j].real), r0 + j - self.k0)
                     if self.system == "GAL":
                         for wt, f in kept:

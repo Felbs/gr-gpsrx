@@ -113,6 +113,14 @@ tears itself apart); the first coherent window must start *on* a bit edge; and b
 be handed their *averaged* state - the 1 ms loops jitter +-10 Hz and +-1 chip/s, and a narrow
 loop started from an instantaneous value walks the code off its peak.
 
+**The channel also watches its own grid.** A radio that drops a buffer of exactly one code period
+leaves nothing for the loops to see (the code repeats) and nothing for the solver to see (its clock
+is the sample counter, which skipped the same millisecond) - only the data bits now flip one period
+early. The flip histogram keeps running after bit sync; when the edge moves, the channel reports a
+`slip`, the solver drops its anchor and the decoder re-finds the bits. Without it the receiver's
+time would be a millisecond off for ever and its position none the wiser (measured, on a capture
+with one period cut out).
+
 *Knobs:* `pll_bw`, `dll_bw`, `pll_bw_narrow`, `dll_bw_narrow`, `coherent_ms`. *Try:* set
 `pll_bw_narrow` to 0 and watch the Doppler jitter in the figure above stay at +-10 Hz.
 

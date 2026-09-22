@@ -274,8 +274,42 @@ needs to be decimated (or removed) for Galileo rates, and the receiver should tr
 overflow as a resynchronisation event (drop every anchor) rather than carry on counting -
 gr-soapy reports the overflow on the console, not as a stream tag, so this needs a watchdog
 (a channel whose epoch count and `sample_abs` disagree with the sample rate by more than a
-period) - not done. The Galileo screenshot in the README is from the replay, where no sample
-is ever dropped.
+period) - done the same night, below. The Galileo screenshot in the README is from the replay,
+where no sample is ever dropped.
+
+## The stream watchdog: what a missing millisecond looks like (22 September, night)
+
+The plan was the obvious one - compare each fix's sample-clock offset from GPS time with the last
+fix's, flag a jump - and it is in (`pvt.samples_lost`, unit-tested). Then a capture with **exactly
+one code period (2048 samples at 2.048 MS/s) cut out at 50 s** was replayed to see it fire, and it
+did not: 49 valid fixes, rms 1.9 m, the offset on a perfectly straight -0.8 us/s line through the
+gap. The lesson is worth the section. A gap of a whole number of code periods is invisible to the
+loops (the code repeats) AND to the solver (the sample counter and every channel's epoch count skip
+the same millisecond, so the stream stays self-consistent), and the nav decoders then RE-ANCHOR ON
+THE SHIFTED BIT GRID - consistently, and 1 ms wrong in absolute time, for ever. The position is
+right; the timing product is a millisecond off and nothing in the receiver can know. A gap that is
+NOT a whole number of periods is the easy case: the DLL loses the code and the channels report
+`lost` (the 2016-sample version of the same test: every channel lost at 50 s, re-acquired later).
+
+The one thing a whole-period gap does move is where the data bits flip: one period earlier than
+the bit grid says. So the channel's flip histogram now keeps running in stage 2 (`_monitor_grid`,
+both engines; the pilot re-scores its secondary-code offset instead), and when another bin wins
+clearly the channel moves its window, reports **`slip`** on its status port and puts a `gpsrx_slip`
+tag on the prompt stream. PVT treats a slip like a new assignment (anchor and Hatch filter dropped,
+timing history cleared); the Nav Decoder re-finds its bit grid on the tag without restarting its
+period count (the I/NAV decoder already re-finds its page grid when the preamble moves). Found on
+the way: the decoder's continuity check floored the period difference (`11999 // 6000 == 1`) and
+refused every subframe after a slip - now rounded.
+
+Result on the one-period-gap capture: all seven channels report the slip within 0.3-0.8 s of the
+gap, the fixes pause 11 s (bit re-sync plus one subframe), and at 61.9 s they return **with the
+clock offset stepped by exactly -1000 us** - the receiver's GPS time is right again - at rms
+1-2 m. A clean 90 s replay and a live run show no false slips. Engine test: a synthetic satellite
+with one period removed, the channel names the slip and the new grid one period earlier.
+
+The live app also keeps the law's own accounting - the radio's item count against the wall clock,
+printed every report. The count advances in scheduler chunks (+-100 ms of jitter, measured), so a
+loss is read as a step in the deficit's floor, not from one reading.
 
 ## Defects found by testing (all fixed)
 

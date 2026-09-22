@@ -85,6 +85,14 @@ def main():
         t0 = time.time()
         print(f"gpsrx live: {a.driver} {a.antenna or ''} for {a.seconds:.0f} s; position -> {a.fix_file} (not printed)", flush=True)
         tb.start()
+        # the capture-integrity law, live: samples == wall x fs, or the stream is not to be trusted.
+        # The radio's item count against the wall clock; the lag is constant once the pipeline has
+        # filled, so a GROWING deficit is lost samples (a SoapySDR overflow prints 'O' and nothing else)
+        # The item count advances in whole scheduler chunks (+-100 ms of jitter against the wall
+        # clock, measured), so a loss is a STEP in the deficit's floor, not a single reading: the
+        # minimum over the latest reports against the minimum over the first ones.
+        n0, w0, deficits = None, None, []
+        next_report = t0 + a.every
         try:
             while time.time() - t0 < a.seconds:
                 time.sleep(1.0)
@@ -93,6 +101,19 @@ def main():
                     if lk.should_yield():
                         print("yielding the radio", flush=True)
                         break
+                now = time.time()
+                if now >= next_report:
+                    next_report += a.every
+                    n = src.nitems_written(0)
+                    if n0 is None and n > 0:
+                        n0, w0 = n, now
+                    elif n0 is not None:
+                        deficits.append(((now - w0) * a.rate - (n - n0)) / a.rate * 1e3)   # ms the wall clock expected and did not get
+                        txt = f" stream: {n} samples in {now - t0:.0f} s; wall x fs - samples = {deficits[-1]:+.0f} ms (jitter +-100)"
+                        if len(deficits) >= 8:
+                            lost = min(deficits[-4:]) - min(deficits[:4])
+                            txt += f"; lost so far ~{lost:+.0f} ms" + (" <- SAMPLES LOST" if lost > 100.0 else "")
+                        print(txt, flush=True)
         except KeyboardInterrupt:
             pass
         tb.stop()

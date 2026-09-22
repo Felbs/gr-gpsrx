@@ -57,6 +57,10 @@ class status_sink(gr.basic_block):
             with self._lock:
                 s = int(d["slot"])
                 c = self.chan.setdefault(s, {})
+                if d.get("what") == "slip":              # still tracking; its bit grid moved (samples lost)
+                    self.events.append(f"slot {s}: PRN{int(d.get('prn', 0))} bit grid SLIPPED after {d.get('periods', 0) / 1000:.0f} s "
+                                       f"- whole code periods missing from the stream; anchor dropped")
+                    return
                 c["what"] = d.get("what")
                 c["prn"] = int(d.get("prn", 0))
                 if d.get("what") == "lost":
@@ -107,7 +111,10 @@ class status_sink(gr.basic_block):
                         txt += f"  (rejected {nv['rejected']})"
                 lines.append(txt)
             f = self.fix
-            if f and f.get("ok"):
+            if f and f.get("resync"):
+                lines.append(f" RESYNC: the stream lost {f['samples_lost_s'] * 1e3:+.3f} ms of samples (the receiver clock jumped); "
+                             f"every anchor dropped, fix #{f['count']} not believed; the decoders re-anchor within a subframe")
+            elif f and f.get("ok"):
                 txt = (f" FIX #{f['count']}: {f['n']} satellites {f['prns']}, rms {f['rms_m']:.1f} m, PDOP {f['pdop']:.1f}, "
                        + (f"GST-GPS {f['isb_s'] * 1e9:+.0f} ns, " if f.get('isb_s') is not None else "")
                        + f"altitude {'plausible' if f['altitude_plausible'] else 'NOT plausible'}, "

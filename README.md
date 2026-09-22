@@ -120,9 +120,9 @@ All of it is in `docs/TEST_REPORT.md`; the headlines, no coordinates anywhere:
 - The wide LO search for RTL-SDR crystals is tested on synthetic satellites, not yet on the bench.
 - Acquisition is snapshot-and-search every N seconds; a satellite rising mid-run is picked up at
   the next interval.
-- A dropped sample block (a SoapySDR overflow) silently breaks the counting observable until the
-  channels re-acquire; the receiver does not yet detect it. The Qt radio flowgraph's full-rate
-  spectrum display causes overflows at 4.096 MS/s on a PC - use `apps/gpsrx_live.py` for Galileo live.
+- The Qt radio flowgraph's full-rate spectrum display causes overflows at 4.096 MS/s on a PC - use
+  `apps/gpsrx_live.py` for Galileo live. (A dropped block is now caught: the channels watch their
+  bit grid and report a `slip`, PVT drops the anchors, the decoders re-anchor - about 10 s of no fix.)
 - GLONASS, BeiDou: not started.
 
 ## Licence

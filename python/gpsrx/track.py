@@ -107,6 +107,9 @@ class Channel:
         self._cd_avg = 0.0                     # the DLL's rate correction, averaged likewise
         self._sec_hist = []                    # pilot: prompt signs for the secondary-code search
         self._sec_pol = 1.0
+        self.slips = 0                         # grid slips seen in stage 2 (samples missing from the stream)
+        self._flips2 = np.zeros(self.bit_periods, dtype=np.int64)
+        self._mon_count = 0
         # FLL-assisted pull-in (gnss-sdr's enable_fll_pull_in): for the first fll_periods a
         # frequency discriminator on consecutive prompts - atan(cross/dot), blind to the data
         # sign like the Costas one - nudges the NCO frequency. A PLL cannot pull in a carrier
@@ -223,6 +226,8 @@ class Channel:
                     self._secondary_sync(ip)
                 else:
                     self._bit_sync(ip)
+            elif self.bit_offset is not None:
+                self._monitor_grid(ip)
             # coherent window: a whole data bit once the edges are known, one period before
             in_window = self.bit_offset is not None
             if in_window and self._secondary is not None:
@@ -348,6 +353,54 @@ class Channel:
         # answer (measured; in a noisier run it walked off the peak entirely)
         self.code_dop = self._cd_avg
         s.code_rate = self.code_rate0 + s.carrier_hz * (self.code_rate0 / self.sig["carrier_hz"]) + self.code_dop
+
+    def _monitor_grid(self, ip):
+        """Stage 2, every period: is the bit grid (or the secondary-code alignment) still where the
+        sync put it? A whole number of code periods missing from the stream - a dropped radio buffer
+        of exactly 1 ms at 4.096 MS/s, say - moves nothing the loops can see (the code repeats) and
+        nothing the solver can see (every count and the sample counter skip the same millisecond;
+        the decoders even re-anchor on the shifted grid, consistently and 1 ms wrong for ever,
+        measured). The one thing that moves is where the data bits flip: one period early. So the
+        flip histogram keeps running; when another bin wins it clearly, the grid has slipped, the
+        channel moves its window, and reports it (status 'slip') so PVT drops the anchor."""
+        s = self.s
+        n = self.bit_periods
+        if self._secondary is not None:
+            # pilot: re-score the secondary-code offset over the last 100 signs, continuously
+            self._sec_hist.append(np.sign(ip) if ip else 0.0)
+            if len(self._sec_hist) > 4 * n:
+                del self._sec_hist[:-4 * n]
+            self._mon_count += 1
+            if self._mon_count < 4 * n or len(self._sec_hist) < 4 * n:
+                return
+            self._mon_count = 0
+            hist = np.array(self._sec_hist)
+            k = s.epochs - 4 * n + 1 + np.arange(4 * n)
+            scores = [float(np.sum(hist * self._secondary[(k - 1 - off) % n])) / (4 * n) for off in range(n)]
+            off = int(np.argmax(np.abs(scores)))
+            if off != self.bit_offset and abs(scores[off]) >= 0.9 and abs(scores[self.bit_offset]) < 0.5:
+                self.bit_offset = off
+                self._sec_pol = 1.0 if scores[off] > 0 else -1.0
+                self._acc[:] = 0
+                self._acc_n, self._acc_dt = 0, 0.0
+                self._aligned = False
+                self.slips += 1
+            return
+        if self._last_ip != 0.0 and np.sign(ip) != np.sign(self._last_ip):
+            self._flips2[(s.epochs - 1) % n] += 1
+        self._last_ip = ip
+        self._mon_count += 1
+        if self._mon_count < 300:
+            return
+        self._mon_count = 0
+        top = int(np.argmax(self._flips2))
+        if top != self.bit_offset and self._flips2[top] >= 8 and self._flips2[top] >= 3 * max(self._flips2[self.bit_offset], 1):
+            self.bit_offset = top
+            self._acc[:] = 0
+            self._acc_n, self._acc_dt = 0, 0.0
+            self._aligned = False
+            self.slips += 1
+        self._flips2[:] = 0
 
     def _bit_sync(self, ip):
         """Stage 1 -> 2: after the loops have settled, histogram the prompt's sign flips mod 20;

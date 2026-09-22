@@ -64,6 +64,7 @@ public:
     double cn0_db = 0.0;            // dB-Hz, moment estimator over 20 prompts
     double carrier_cycles = 0.0;    // accumulated NCO phase in cycles: the carrier-phase observable
     int bit_offset = -1;            // period index (mod 20) at which a data bit begins; -1 = stage 1
+    int slips = 0;                  // stage-2 grid slips seen (whole code periods missing from the stream)
     int code_len = CODE_LEN;        // 1023 GPS, 4092 Galileo
     double period_s() const { return code_len / CODE_RATE; }
     std::string sys = "GPS";
@@ -96,6 +97,9 @@ private:
     double m2_ = 0.0, m4_ = 0.0;
     int mn_ = 0;
     void bit_sync(double ip);
+    void monitor_grid(double ip);   // stage 2: has the bit / secondary-code grid slipped?
+    int64_t flips2_[32] = { 0 };
+    int mon_count_ = 0;
 };
 
 class channel_cc_impl : public channel_cc
@@ -118,6 +122,7 @@ private:
     int64_t t0_abs_ = 0;
     int64_t n_periods_ = 0;
     int lost_run_ = 0;
+    int slips_seen_ = 0;
     static constexpr double LOST_LOCK = 0.2;
     static constexpr int LOST_PERIODS = 500;
 

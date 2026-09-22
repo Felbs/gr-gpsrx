@@ -201,3 +201,32 @@ def test_two_systems_solve_with_an_inter_system_bias():
     assert np.linalg.norm(np.array(fx["ecef"]) - rx) < 1.0, fx["rms_m"]
     assert fx["isb_s"] is not None and abs(fx["isb_s"] - isb) < 1e-9, fx["isb_s"]
     assert fx["valid"]
+
+
+def test_the_watchdog_sees_lost_samples_as_a_clock_jump():
+    """Samples dropped by the radio (a SoapySDR overflow) are invisible to every channel - each
+    goes on counting code periods - and show up in exactly one place: the sample clock's offset
+    from GPS time jumps by the gap. The watchdog compares each valid fix's offset with the one
+    predicted from the last fix and the fitted drift. Two solves of the synthetic constellation one
+    second apart: with the stream intact the offset moves by the drift alone; with 2016 samples
+    (one USB transfer) missing between them it jumps by 2016 / fs and the watchdog names the gap."""
+    t0 = 302400.0
+    rx = llh_to_ecef(*RX_LLH)
+    ephs = constellation(t0, rx)
+    fs, drift = 2.048e6, -800e-9                         # the RSPdx: -800 ppb
+    fixes = []
+    for k, t_rx in enumerate((t0 + 100.0, t0 + 101.0)):
+        vis = visible(rx, ephs, t_rx)
+        fx = pvt.solve([dict(prn=e["prn"], eph=e, t_sv=observe(rx, e, t_rx)) for e in vis])
+        assert fx["valid"] and abs(fx["t_rx"] - t_rx) < 1e-7
+        # the sample the epoch arrived on: the sample clock runs at (1 + drift) x fs from an offset
+        s_ref = (fx["t_rx"] - t0) * fs * (1 + drift) + 12345.0
+        fixes.append((s_ref / fs, s_ref / fs - fx["t_rx"], drift))
+    assert pvt.samples_lost(fixes[0], fixes[1]) is None                   # intact: drift alone
+    assert pvt.samples_lost(fixes[0], (fixes[1][0], fixes[1][1], None)) is None
+    gap = 2016.0 / fs
+    dropped = (fixes[1][0] - gap, fixes[1][1] - gap, drift)               # the same instant, 2016 samples fewer
+    got = pvt.samples_lost(fixes[0], dropped)
+    assert got is not None and abs(got + gap) < 1e-9, got
+    assert pvt.samples_lost(fixes[0], (fixes[1][0] + 60.0, fixes[1][1] - gap, drift)) is None   # too long ago to judge
+    assert pvt.samples_lost(None, dropped) is None

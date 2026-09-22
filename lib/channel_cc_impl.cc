@@ -176,6 +176,8 @@ std::complex<double> tracker::step(const std::complex<float>* x, int n)
             secondary_sync(ip);
         else
             bit_sync(ip);
+    } else if (bit_offset >= 0) {
+        monitor_grid(ip);
     }
     // stage 2: coherent window over a whole bit, one loop update per window (track.py)
     std::complex<double> Ew = E, Pw = P, Lw = L;
@@ -300,6 +302,69 @@ void tracker::bit_sync(double ip)
         bit_offset = (int)arg;
         switch_to_narrow();
     }
+}
+
+void tracker::monitor_grid(double ip)
+{
+    // stage 2, every period: is the bit grid (or the secondary-code alignment) still where the sync
+    // put it? A whole number of code periods missing from the stream moves nothing the loops or the
+    // solver can see (the code repeats; every count and the sample counter skip the same
+    // millisecond; the decoders re-anchor on the shifted grid, consistently and 1 ms wrong for
+    // ever - measured). The one thing that moves is where the data bits flip. (track.py)
+    const int n = bit_periods_;
+    if (!secondary_.empty()) {
+        sec_hist_.push_back(ip > 0 ? 1 : (ip < 0 ? -1 : 0));
+        const int N = 4 * n;
+        if ((int)sec_hist_.size() > N)
+            sec_hist_.erase(sec_hist_.begin(), sec_hist_.begin() + (sec_hist_.size() - N));
+        if (++mon_count_ < N || (int)sec_hist_.size() < N)
+            return;
+        mon_count_ = 0;
+        double best = 0.0, cur = 0.0;
+        int best_off = 0;
+        for (int off = 0; off < n; off++) {
+            double sc = 0.0;
+            for (int j = 0; j < N; j++) {
+                const int64_t k = epochs - N + 1 + j;
+                sc += sec_hist_[j] * secondary_[(int)(((k - 1 - off) % n + n) % n)];
+            }
+            sc /= N;
+            if (off == bit_offset)
+                cur = sc;
+            if (std::fabs(sc) > std::fabs(best)) {
+                best = sc;
+                best_off = off;
+            }
+        }
+        if (best_off != bit_offset && std::fabs(best) >= 0.9 && std::fabs(cur) < 0.5) {
+            bit_offset = best_off;
+            sec_pol_ = best > 0 ? 1.0 : -1.0;
+            acc_[0] = acc_[1] = acc_[2] = 0;
+            acc_dt_ = 0.0;
+            aligned_ = false;
+            slips++;
+        }
+        return;
+    }
+    if (last_ip_ != 0.0 && (ip < 0) != (last_ip_ < 0))
+        flips2_[(epochs - 1) % n]++;
+    last_ip_ = ip;
+    if (++mon_count_ < 300)
+        return;
+    mon_count_ = 0;
+    int top = 0;
+    for (int i = 1; i < n; i++)
+        if (flips2_[i] > flips2_[top])
+            top = i;
+    if (top != bit_offset && flips2_[top] >= 8 && flips2_[top] >= 3 * std::max<int64_t>(flips2_[bit_offset], 1)) {
+        bit_offset = top;
+        acc_[0] = acc_[1] = acc_[2] = 0;
+        acc_dt_ = 0.0;
+        aligned_ = false;
+        slips++;
+    }
+    for (int i = 0; i < n; i++)
+        flips2_[i] = 0;
 }
 
 // ---- the block ------------------------------------------------------------------------------
@@ -472,6 +537,7 @@ int channel_cc_impl::general_work(int noutput_items,
         eng_.reset(new tracker(pend_prn_, fs_, pend_dop_, rel, pll_bw_, dll_bw_, pll_bw_narrow_, dll_bw_narrow_, coherent_ms_, pll_order_, sigp));
         t0_abs_ = start;
         lost_run_ = 0;
+        slips_seen_ = 0;
         have_pending_ = false;
         pmt::pmt_t tag = pmt::make_dict();
         tag = pmt::dict_add(tag, pmt::mp("prn"), pmt::from_long(pend_prn_));
@@ -497,6 +563,17 @@ int channel_cc_impl::general_work(int noutput_items,
         produced++;
         consumed += need;
         n_periods_++;
+        if (eng_->slips != slips_seen_) { // the bit grid moved: whole code periods missing from the stream
+            slips_seen_ = eng_->slips;
+            pmt::pmt_t ex = pmt::make_dict();
+            ex = pmt::dict_add(ex, pmt::mp("periods"), pmt::from_long((long)n_periods_));
+            ex = pmt::dict_add(ex, pmt::mp("bit_offset"), pmt::from_long(eng_->bit_offset));
+            publish_status("slip", ex);
+            pmt::pmt_t tag = pmt::make_dict(); // the Nav Decoder downstream finds its bit grid again
+            tag = pmt::dict_add(tag, pmt::mp("prn"), pmt::from_long(eng_->prn));
+            tag = pmt::dict_add(tag, pmt::mp("slot"), pmt::from_long(slot_));
+            add_item_tag(0, nitems_written(0) + produced - 1, pmt::mp("gpsrx_slip"), tag);
+        }
         if (eng_->lock < LOST_LOCK)
             lost_run_++;
         else

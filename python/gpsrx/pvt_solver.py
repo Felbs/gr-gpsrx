@@ -89,6 +89,21 @@ class pvt_solver(gr.basic_block):
         self._pending = None
         # the timing product: (sample, GPS time) pairs from recent fixes -> clock drift, next PPS
         self._time_hist = []
+        self.n_resync = 0                   # stream discontinuities (samples lost) detected and recovered from
+        self._clock_prev = None             # (epoch_sample, clock_offset_s, drift) of the last valid fix
+
+    def _samples_lost(self, fx):
+        """The stream-continuity watchdog (pvt.samples_lost): did the sample clock's offset from GPS
+        time jump since the last valid fix? Keeps (sample time, offset, fitted drift) per fix."""
+        s_ref, t_rx = float(fx["epoch_sample"]), float(fx["t_rx"])
+        drift = None
+        if len(self._time_hist) >= 5:
+            S = np.array([p[0] for p in self._time_hist]) / self.fs
+            Tg = np.array([p[1] for p in self._time_hist])
+            drift = float(np.polyfit(S - S[0], (S - S[0]) - (Tg - Tg[0]), 1)[0])
+        now = (s_ref / self.fs, s_ref / self.fs - t_rx, drift)
+        prev, self._clock_prev = self._clock_prev, now
+        return pvt.samples_lost(prev, now)
 
     def on_nav(self, msg):
         d = pmt.to_python(msg)
@@ -157,13 +172,19 @@ class pvt_solver(gr.basic_block):
             if d.get("what") in ("lost", "idle", "tracking"):
                 self.obs.pop(slot, None)
                 self.obs_prev.pop(slot, None)                     # its last observable is not a measurement any more
-            if d.get("what") in ("tracking", "lost", "idle"):
+            if d.get("what") in ("tracking", "lost", "idle", "slip"):
                 # a new assignment restarts the channel's epoch count at zero: the old TIMING ANCHOR
                 # for this slot is dead (new counts against an old anchor put one satellite 24 s -
                 # 7e9 m - off on a drive leg, measured). The ephemeris is per satellite and stays.
+                # 'slip': the channel's bit grid moved - whole code periods vanished from the stream -
+                # so its count against the old anchor is off by those periods: the same treatment.
                 for key in [k for k in self.nav if k[0] == slot]:
                     self.nav[key].pop("anchor", None)
                     self.hatch.pop(key[1], None)
+                if d.get("what") == "slip":
+                    self.n_resync += 1
+                    self._time_hist = []
+                    self._clock_prev = None
 
     def on_obs(self, msg):
         d = pmt.to_python(msg)
@@ -216,6 +237,29 @@ class pvt_solver(gr.basic_block):
                 self.message_port_pub(pmt.intern("fix"), pmt.to_pmt(dict(ok=False, n=len(chans))))
                 return
             self.n_fixes += 1
+            lost_s = self._samples_lost(fx) if fx["valid"] else None
+            if lost_s is not None:
+                # THE STREAM LOST SAMPLES (a SoapySDR overflow, a dropped buffer): every channel went
+                # on counting code periods against samples that never arrived, so every count is
+                # now wrong against its anchor by the same amount, the solve's receiver clock jumped
+                # by that amount - and nothing else in the receiver can tell. The counting observable
+                # is only as good as the stream's continuity ("samples == wall x fs, or void"). Drop
+                # every anchor and filter: the nav decoders re-anchor on their next subframe / page.
+                for ent in self.nav.values():
+                    ent.pop("anchor", None)
+                self.hatch.clear()
+                self._time_hist = []
+                if self.kf is not None:
+                    self.kf = pvt.PositionFilter(vel_sd=self.kf.q_v)
+                self.fixes = []
+                self.n_resync += 1
+                self.message_port_pub(pmt.intern("fix"), pmt.to_pmt(dict(
+                    ok=True, valid=False, resync=True, samples_lost_s=float(lost_s), n=fx["n"], prns=fx["prns"],
+                    rms_m=fx["rms_m"], pdop=fx["pdop"], altitude_plausible=fx["altitude_plausible"],
+                    residuals_m=fx["residuals_m"], ecef=fx["ecef"], llh=list(fx["llh"]), clock_bias_s=fx["clock_bias_s"],
+                    epoch_sample=fx["epoch_sample"], iono=self.iono_src, count=self.n_fixes, raim=fx["raim"],
+                    weights=fx["weights"], azel={str(p): list(v) for p, v in fx["azel"].items()}, isb_s=fx.get("isb_s"))))
+                return
             time_out = self._timing(fx) if fx["valid"] else {}
             kf_out = None
             if self.kf is not None and fx["valid"]:
@@ -247,7 +291,8 @@ class pvt_solver(gr.basic_block):
                 self.history.append(dict(count=self.n_fixes, n=fx["n"], prns=fx["prns"], rms_m=fx["rms_m"], excluded=fx["raim"]["excluded"],
                                          pdop=fx["pdop"], ecef=fx["ecef"], t_stream_s=fx["epoch_sample"] / self.fs,
                                          ecef_kf=(kf_out or {}).get("ecef_kf"), speed_mps=(kf_out or {}).get("speed_mps"),
-                                         altitude_plausible=fx["altitude_plausible"], valid=fx["valid"]))
+                                         altitude_plausible=fx["altitude_plausible"], valid=fx["valid"],
+                                         clock_offset_s=time_out.get("clock_offset_s"), resyncs=self.n_resync))
                 os.makedirs(os.path.dirname(os.path.abspath(self.fix_file)), exist_ok=True)
                 with open(self.fix_file, "w") as fh:
                     json.dump(dict(out, history=self.history), fh, indent=1)

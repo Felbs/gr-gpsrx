@@ -148,3 +148,32 @@ def test_third_order_loop_follows_a_doppler_rate():
         locks[order] = ch.s.lock
         assert abs(ch.s.carrier_hz - (tr["doppler_hz"] + 40.0 * pos / FS)) < 3.0, (order, ch.s.carrier_hz)
     assert locks[3] > 0.9 and locks[3] > locks[2] + 0.1, locks
+
+
+def test_a_missing_code_period_is_seen_as_a_grid_slip():
+    """One whole code period cut out of the stream is invisible to the loops (the code repeats) and
+    to the solver (every count and the sample counter skip the same millisecond) - but the data
+    bits now flip one period earlier than the bit grid says. The channel keeps its flip histogram
+    running in stage 2, moves its window and counts a slip; the block turns that into a 'slip'
+    status and a stream tag, PVT drops the anchor and the decoder re-finds its grid (measured on a
+    capture with 2048 samples removed: the receiver's GPS time stepped by exactly the 1 ms it had
+    silently lost)."""
+    from gpsrx import synth, track
+    fs = 2.048e6
+    x, tr = synth.satellite(9, fs, 4.0, doppler_hz=800.0, code_phase_samples=300, cn0_dbhz=45.0, seed=5)
+    cut = int(2.2 * fs)
+    x = np.concatenate([x[:cut], x[cut + 2048:]])                    # one period, gone
+    ch = track.Channel(9, fs, 780.0, 300, pll_bw=18.0, dll_bw=2.0, pll_bw_narrow=15.0, dll_bw_narrow=0.5, coherent_ms=20)
+    pos, off_before, slip_at = 0, None, None
+    while pos + ch.samples_needed() <= len(x):
+        n = ch.samples_needed()
+        ch.step(x[pos:pos + n])
+        pos += n
+        if ch.bit_offset is not None and off_before is None:
+            off_before = ch.bit_offset
+        if ch.slips and slip_at is None:
+            slip_at = pos / fs
+    assert off_before is not None and slip_at is not None, (off_before, slip_at)
+    assert 2.2 < slip_at < 3.3, slip_at                                # found within two 300-period looks at the histogram
+    assert ch.slips == 1 and ch.bit_offset == (off_before - 1) % 20, (ch.slips, off_before, ch.bit_offset)
+    assert ch.s.lock > 0.9 and abs(ch.s.carrier_hz - tr["doppler_hz"]) < 2.0

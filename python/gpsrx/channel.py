@@ -123,6 +123,7 @@ class channel(gr.basic_block):
                                   coherent_ms=self.coherent_ms, pll_order=self.pll_order, signal=self.sig)
                 self._t0_abs = start                       # engine sample k == absolute start + k
                 self._lost_run = 0
+                self._slips_seen = 0
                 # the prompt stream carries the assignment as a tag on its first item: the Nav
                 # Decoder downstream restarts its period count there, in step with the engine's
                 self.add_item_tag(0, self.nitems_written(0), pmt.intern("gpsrx_assign"),
@@ -146,6 +147,14 @@ class channel(gr.basic_block):
                 produced += 1
                 consumed += need
                 self.n_periods += 1
+                if eng.slips != self._slips_seen:
+                    # the bit (or secondary-code) grid moved under the channel: samples went missing
+                    # from the stream, a whole number of code periods of them, which nothing else can
+                    # see. The count against the old anchor is now wrong: PVT drops the anchor.
+                    self._slips_seen = eng.slips
+                    self._status("slip", periods=self.n_periods, bit_offset=int(eng.bit_offset))
+                    self.add_item_tag(0, self.nitems_written(0) + produced - 1, pmt.intern("gpsrx_slip"),
+                                      pmt.to_pmt(dict(prn=self.prn, slot=self.slot)))
                 if eng.s.lock < LOST_LOCK:
                     self._lost_run += 1
                 else:

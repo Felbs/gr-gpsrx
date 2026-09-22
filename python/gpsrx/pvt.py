@@ -362,6 +362,27 @@ def fix_from_channels(channels, fs, iono=None, hatch=None, hatch_m=100):
     return fx
 
 
+LOST_THRESHOLD_S = 100e-6       # a dropped buffer is >= one USB transfer (~0.5 ms); the clock is steady to ns
+
+
+def samples_lost(prev, now, threshold=LOST_THRESHOLD_S, max_dt_s=30.0):
+    """The stream-continuity watchdog ("samples == wall x fs, or void"). `prev` and `now` are
+    (epoch_sample / fs, clock_offset_s, drift) of two valid fixes, clock_offset_s being the sample
+    clock's offset from GPS time (sample / fs - t_rx) and drift its fitted rate (s/s, or None). The
+    offset moves smoothly (-800 ppb on an RSPdx: 0.8 us per second); a JUMP of more than the threshold
+    between fixes means samples went missing in between - every channel counted code periods over
+    a gap that was not there, and its count is wrong against its anchor by exactly the gap. Returns
+    the gap in seconds (negative: samples lost), or None."""
+    if prev is None or now is None:
+        return None
+    dt = now[0] - prev[0]
+    if dt <= 0 or dt > max_dt_s:
+        return None
+    predicted = prev[1] + (prev[2] or 0.0) * dt
+    jump = now[1] - predicted
+    return float(jump) if abs(jump) > threshold else None
+
+
 class PositionFilter:
     """Kalman filter on the position solution (gnss-sdr's enable_pvt_kf): state [x y z vx vy vz]
     in ECEF, constant-velocity model, the least-squares fix as the measurement with its own

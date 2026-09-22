@@ -276,7 +276,9 @@ class NavDecoder:
                 sf0, tow0, i0 = self.subframes[-1]
                 p0 = self.anchors[-1][0]
                 dt = (tow_this - tow0) % 604800
-                if abs(dt - (period - p0) * 1e-3) > 2e-3 or (sf - sf0) % 5 != ((period - p0) // 6000) % 5:
+                # (rounded, not floored: one period missing from the stream makes 11999 periods of
+                # two subframes, and 11999 // 6000 == 1 refused every subframe after a slip)
+                if abs(dt - (period - p0) * 1e-3) > 2e-3 or (sf - sf0) % 5 != int(round((period - p0) / 6000.0)) % 5:
                     self.n_rejected += 1
                     continue                                       # a false frame, or a slipped one
             parse_subframe(self.eph, sf, words)
@@ -284,6 +286,15 @@ class NavDecoder:
             self.anchors.append((period, float(tow_this)))
             kept.append((sf, tow_next, words, i, pol))
         return kept
+
+    def resync(self):
+        """The channel's bit grid slipped (whole code periods missing from the stream): find the
+        bit boundary again and frame from scratch. The ephemeris, subframes and anchors are kept - a
+        subframe framed on the old grid is 1 ms off in its anchor, and the solver has already dropped
+        it; the next one, on the new grid, is right (the 2 ms continuity tolerance lets it in)."""
+        self.sync = BitSync()
+        self.bits = None
+        self.framer = Framer()
 
     @property
     def complete(self):
