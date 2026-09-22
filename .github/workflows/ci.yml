@@ -27,7 +27,7 @@ jobs:
       - name: GNU Radio 3.10 from Ubuntu
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gnuradio-dev python3-gnuradio cmake pybind11-dev \
+          sudo apt-get install -y --no-install-recommends gnuradio gnuradio-dev cmake pybind11-dev \
             libspdlog-dev libvolk-dev python3-numpy python3-pytest
       - name: build
         run: |
