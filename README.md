@@ -10,7 +10,8 @@
 > on a recording from a different constellation hours earlier. Eight C++ channels run at 15x
 > real time. Built and run on Windows (radioconda + MSVC); Linux is the same CMake but has
 > not been exercised yet. `docs/DESIGN.md` has the receiver; `docs/TEST_REPORT.md` the
-> evidence and the defects found on the way.
+> evidence and the defects found on the way; `docs/GNSS_SDR_COMPARISON.md` the head-to-head
+> against gnss-sdr on the same air (same answer; theirs ~30% quieter per epoch) and what to borrow.
 
 The point is educational: every stage of a GPS receiver as a block on the canvas, every
 intermediate as a message you can plot, and a real position at the end. The reference and
