@@ -68,7 +68,7 @@ class receiver(gr.hier_block2):
             else:
                 ch = channel(samp_rate, slot=s, pll_bw=pll_bw if not gal else 12.0, dll_bw=dll_bw if not gal else 1.0,
                              pll_bw_narrow=pll_bw_narrow, dll_bw_narrow=dll_bw_narrow, coherent_ms=coherent_ms,
-                             pll_order=pll_order, signal="E1B" if gal else "L1CA",
+                             pll_order=pll_order, signal="E1" if gal else "L1CA",      # E1 = pilot-aided
                              obs_every_ms=250 if gal else 1000)      # an observable per second: 4 ms periods
             dec = nav_decoder(slot=s)
             self.connect(self, ch, dec)

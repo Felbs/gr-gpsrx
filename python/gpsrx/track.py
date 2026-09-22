@@ -76,10 +76,17 @@ class Channel:
                                   bit_periods=20, coherent_max=20, carrier_hz=L1_HZ)
         self.code_len, self.code_rate0 = self.sig["code_len"], self.sig["code_rate"]
         self.code_fn = self.sig["code_at"]
+        self._data_fn = self.sig.get("data_code_at")          # pilot-aided signals: a separate data prompt
+        self._secondary = self.sig.get("secondary")           # +-1 per period, known: wipe it after sync
         self.bit_periods = int(self.sig["bit_periods"])
         if spacing is None:
             spacing = self.sig["spacing"]
-        coherent_ms = min(int(coherent_ms), int(self.sig["coherent_max"]))
+        # coherent_ms is MILLISECONDS; the window is counted in periods (1 ms GPS, 4 ms Galileo) and
+        # must divide the bit / secondary-code length (20 periods, 25 chips)
+        period_ms = 1e3 * self.code_len / self.code_rate0
+        coherent_ms = max(1, min(int(round(coherent_ms / period_ms)), int(self.sig["coherent_max"])))
+        while self.sig["bit_periods"] % coherent_ms:
+            coherent_ms -= 1
         # Two stages, as gnss-sdr does it: wide loops and 1 ms integration to pull in; then, once
         # the data-bit edges are known, NARROW loops and coherent integration over a whole bit
         # (coherent_ms, a divisor of 20). The correlators sum across the bit - 13 dB more
@@ -98,6 +105,8 @@ class Channel:
         self._aligned = False
         self._f_avg = None                     # carrier Doppler averaged over ~100 periods (stage 1)
         self._cd_avg = 0.0                     # the DLL's rate correction, averaged likewise
+        self._sec_hist = []                    # pilot: prompt signs for the secondary-code search
+        self._sec_pol = 1.0
         # FLL-assisted pull-in (gnss-sdr's enable_fll_pull_in): for the first fll_periods a
         # frequency discriminator on consecutive prompts - atan(cross/dot), blind to the data
         # sign like the Costas one - nudges the NCO frequency. A PLL cannot pull in a carrier
@@ -168,10 +177,14 @@ class Channel:
             prompt = self.code_fn(self.prn, ph)
             ip, qp = float(np.dot(xb.real, prompt)), float(np.dot(xb.imag, prompt))
             ie = qe = il = ql = 0.0
+            ip_data, qp_data = ip, qp
         else:
             codes = self.code_fn(self.prn, ph[None, :] + self._epl[:, None])     # (3, n): E, P, L
-            c = codes @ np.column_stack((xb.real, xb.imag))                     # (3, 2)
+            if self._data_fn is not None:                                       # pilot-aided: + the data prompt
+                codes = np.vstack((codes, self._data_fn(self.prn, ph)[None, :]))
+            c = codes @ np.column_stack((xb.real, xb.imag))                     # (3 or 4, 2)
             (ie, qe), (ip, qp), (il, ql) = (float(c[0, 0]), float(c[0, 1])), (float(c[1, 0]), float(c[1, 1])),                 (float(c[2, 0]), float(c[2, 1]))
+            ip_data, qp_data = (float(c[3, 0]), float(c[3, 1])) if self._data_fn is not None else (ip, qp)
         # advance phases by what this period consumed
         dt = n / self.fs
         s.carrier_phase = (s.carrier_phase + 2 * np.pi * s.carrier_hz * dt) % (2 * np.pi)
@@ -201,13 +214,22 @@ class Channel:
                     s.cn0_db = cn0 if s.cn0_db == 0.0 else 0.9 * s.cn0_db + 0.1 * cn0
                 self._m2 = self._m4 = 0.0
                 self._mn = 0
-            # bit sync (stage 1 only): where, mod 20, does the prompt's sign flip?
+            # bit sync (stage 1 only): where, mod 20, does the prompt's sign flip? (or, for a pilot
+            # with a known secondary code, where in the sequence are we?)
             if self.bit_offset is None and self.coh > 1:
                 self._f_avg = s.carrier_hz if self._f_avg is None else 0.99 * self._f_avg + 0.01 * s.carrier_hz
                 self._cd_avg = 0.99 * self._cd_avg + 0.01 * self.code_dop
-                self._bit_sync(ip)
+                if self._secondary is not None:
+                    self._secondary_sync(ip)
+                else:
+                    self._bit_sync(ip)
             # coherent window: a whole data bit once the edges are known, one period before
             in_window = self.bit_offset is not None
+            if in_window and self._secondary is not None:
+                # wipe the known secondary chip off this period's pilot correlations: what is left
+                # is a pure carrier, and the window may be the whole 100 ms sequence
+                chip = self._sec_pol * self._secondary[(s.epochs - 1 - self.bit_offset) % len(self._secondary)]
+                ie, qe, ip, qp, il, ql = ie * chip, qe * chip, ip * chip, qp * chip, il * chip, ql * chip
             if in_window:
                 at_edge = (s.epochs - self.bit_offset) % self.coh == 0
                 if not self._aligned:
@@ -215,13 +237,13 @@ class Channel:
                     # first window with the error history reset kicked the narrow loop 18 Hz
                     # off on a synthetic sky (measured); the NCO free-runs a few ms instead.
                     self._aligned = at_edge
-                    return ip, qp
+                    return ip_data, qp_data
                 self._acc += (ie + 1j * qe, ip + 1j * qp, il + 1j * ql)
                 self._acc_n += 1
                 self._acc_dt += dt
                 # the window ends on the period BEFORE a bit edge: the next period starts a bit
                 if not at_edge:
-                    return ip, qp
+                    return ip_data, qp_data
                 (ie, qe), (ip_, qp_), (il, ql) = [(c.real, c.imag) for c in self._acc]
                 dt_loop = self._acc_dt
                 self._acc[:] = 0
@@ -261,7 +283,43 @@ class Channel:
             self.code_dop += (self.dll_t2 * (e_dll - s.dll_e_prev) + dt_loop * e_dll) / self.dll_t1
             s.dll_e_prev = e_dll
             s.code_rate = self.code_rate0 + s.carrier_hz * (self.code_rate0 / self.sig["carrier_hz"]) + self.code_dop
-        return ip, qp
+        return ip_data, qp_data
+
+    def _secondary_sync(self, ip):
+        """Stage 1 -> 2 for a pilot: the prompt's signs over the last 100 periods, correlated with
+        the known 25-chip secondary code at every cyclic offset and both polarities; 90% agreement
+        names the offset. Then the same switch as bit sync (narrow loops, averaged handover)."""
+        s = self.s
+        self._sec_hist.append(np.sign(ip) if ip else 0.0)
+        n = len(self._secondary)
+        if len(self._sec_hist) < 4 * n or s.epochs < 300 or s.lock <= 0.5:
+            return
+        hist = np.array(self._sec_hist[-4 * n:])
+        k = s.epochs - 4 * n + np.arange(4 * n)                 # the epoch count each sign belongs to
+        best = None
+        for off in range(n):
+            score = float(np.sum(hist * self._secondary[(k - 1 - off) % n])) / (4 * n)
+            if best is None or abs(score) > abs(best[0]):
+                best = (score, off)
+        score, off = best
+        if abs(score) >= 0.9:
+            self.bit_offset = off
+            self._sec_pol = 1.0 if score > 0 else -1.0
+            self.pll_t1, self.pll_t2 = loop_gains(self.pll_bw_narrow, k=1.0)
+            self.dll_t1, self.dll_t2 = loop_gains(self.dll_bw_narrow)
+            if self.pll_order == 3:
+                self._w3 = self.pll_bw_narrow / 0.7845
+                self._acc3 = 0.0
+                self._vel3 = (self._f_avg - self.doppler0) if self._f_avg is not None else self.carr_corr
+            s.pll_e_prev = s.dll_e_prev = 0.0
+            self._acc[:] = 0
+            self._acc_n, self._acc_dt = 0, 0.0
+            self._aligned = False
+            if self._f_avg is not None:
+                self.carr_corr = self._f_avg - self.doppler0
+                s.carrier_hz = self._f_avg
+            self.code_dop = self._cd_avg
+            s.code_rate = self.code_rate0 + s.carrier_hz * (self.code_rate0 / self.sig["carrier_hz"]) + self.code_dop
 
     def _bit_sync(self, ip):
         """Stage 1 -> 2: after the loops have settled, histogram the prompt's sign flips mod 20;
@@ -320,7 +378,7 @@ class Channel:
         return {"prn": self.prn, "epochs": s.epochs, "code_phase": s.code_phase, "carrier_hz": s.carrier_hz,
                 "samples_in": s.samples_in, "epoch_sample": s.samples_in - overshoot_samples, "lock": s.lock,
                 "cn0_db": s.cn0_db, "carrier_cycles": s.carrier_cycles - s.carrier_hz * overshoot_samples / self.fs,
-                "period_s": self.T, "sys": "GAL" if self.sig["name"] == "E1B" else "GPS"}
+                "period_s": self.T, "sys": "GAL" if self.sig["name"] in ("E1B", "E1") else "GPS"}
 
 
 def track_array(x, fs, prn, doppler_hz, code_phase_samples, n_ms, **kw):

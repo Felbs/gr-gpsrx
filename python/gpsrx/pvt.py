@@ -327,9 +327,6 @@ def hatch_smooth(entries, state, fs, s_ref, M=100, slip_m=30.0):
         raw.append((e, pr, phase_m, st, d))
     ds = [d for _, _, _, _, d in raw if d is not None and abs(d) < 3 * slip_m]
     common = float(np.median(ds)) if len(ds) >= 3 else 0.0
-    if os.environ.get("GPSRX_HATCH_DUMP"):
-        with open(os.environ["GPSRX_HATCH_DUMP"], "a") as fh:
-            fh.write("%.3f common %+.3f " % (t_ref, common) + " ".join("%d:%+.2f" % (e["prn"], d) for e, _, _, _, d in raw if d is not None) + chr(10))
     out = []
     for e, pr, phase_m, st, d in raw:
         if st is not None and d is not None and abs(d - common) < slip_m:

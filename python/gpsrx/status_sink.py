@@ -102,7 +102,7 @@ class status_sink(gr.basic_block):
                 if o:
                     txt += f"  lock {o['lock']:.2f}  C/N0 {o.get('cn0_db', 0):4.1f}  Doppler {o['carrier_hz']:+7.1f} Hz  {o['epochs'] / 1000:5.0f} s"
                 if nv:
-                    txt += f"  subframes {nv['n_subframes']}" + ("  EPH" if nv.get("complete") else "")
+                    txt += (f"  pages {nv['n_subframes']}" if nv.get("system") == "GAL" else f"  subframes {nv['n_subframes']}") + ("  EPH" if nv.get("complete") else "")
                     if nv.get("rejected"):
                         txt += f"  (rejected {nv['rejected']})"
                 lines.append(txt)

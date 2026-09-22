@@ -47,9 +47,9 @@ class channel(gr.basic_block):
         # signal: 'L1CA' (GPS) or 'E1B' (Galileo): the engine's code, period and spacing follow
         self.signal_name = str(signal).upper()
         self.sig = None
-        if self.signal_name == "E1B":
+        if self.signal_name in ("E1B", "E1"):
             from . import gale1
-            self.sig = gale1.SIGNAL_E1B
+            self.sig = gale1.SIGNAL_E1 if self.signal_name == "E1" else gale1.SIGNAL_E1B
         self.obs_every = int(obs_every_ms)
         self.eng = None
         self.prn = 0

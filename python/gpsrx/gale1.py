@@ -57,6 +57,20 @@ def sampled_code(prn, fs, n_samp, component="b"):
     return code_at(prn, ph, component)
 
 
-# the description a Channel needs to track this signal instead of GPS L1 C/A
+# the description a Channel needs to track this signal instead of GPS L1 C/A: E1-B alone (data
+# channel: no integration beyond a period), or PILOT-AIDED - the loops on E1-C, whose 25-chip
+# secondary code (ICD 3.8.2) is KNOWN: once the channel finds where it is in the sequence it
+# wipes the chips off and integrates up to 100 ms, while a fourth correlator on E1-B delivers
+# the data symbols for the I/NAV decoder.
+CS25 = "0011100000001010110110010"
+SECONDARY = np.array([1.0 - 2.0 * int(c) for c in CS25])
+
+
+def code_at_c(prn, phase_chips):
+    return code_at(prn, phase_chips, "c")
+
+
 SIGNAL_E1B = dict(name="E1B", code_len=CODE_LEN, code_rate=CODE_RATE, code_at=code_at, spacing=0.25,
                   bit_periods=1, coherent_max=1, carrier_hz=L1_HZ)
+SIGNAL_E1 = dict(name="E1", code_len=CODE_LEN, code_rate=CODE_RATE, code_at=code_at_c, data_code_at=code_at,
+                 spacing=0.25, bit_periods=25, coherent_max=25, secondary=SECONDARY, carrier_hz=L1_HZ)

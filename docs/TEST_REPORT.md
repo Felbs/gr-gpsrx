@@ -182,6 +182,21 @@ through the encoder chain, a two-system synthetic solve recovering a 25 ns bias 
 Found on the way: at 4.096 MS/s a code period (4096 samples; 16384 for Galileo) exceeds GNU
 Radio's default 8191-item buffer, so the feeding block's output buffer is enlarged by the apps.
 
+## Galileo E1-C pilot tracking (the same evening)
+
+The loops now run on E1-C, whose 25-chip secondary code is known: the channel correlates its
+prompt signs with the sequence at every offset (90% agreement names it), wipes the chips, and
+integrates 20 ms with narrow loops - the same two-stage machinery as GPS - while a fourth correlator
+on E1-B feeds the I/NAV decoder. Three real satellites: lock 0.97-0.98, every page CRC-clean, quieter
+Doppler. 100 ms windows do not lock (a few Hz of post-handover error turns half a cycle inside the
+window; a 20 -> 100 ms ramp would fix it - a static-antenna luxury, not done). A parameter lesson: the
+window is milliseconds and is now converted to periods (a "20" that meant 80 ms at 4 ms periods
+put the loop over unity gain).
+
+The joint solve, settled (last 35 of 90 s, all 11 satellites in): **scatter 1.7-1.8 m, rms 4.6 m -
+against GPS-only 3.8 m and 5.9 m** on the same samples. The whole-run scatter (7.6 m) is the transition
+while Galileo joins; the fix's mean is 2.7 m from GPS-only's.
+
 ## Defects found by testing (all fixed)
 
 1. Costas discriminator written as `atan2(Q, I)`: a 180-degree data flip read as a 165-degree phase error, the carrier slewed 100 Hz, every bit transition glitched. Must be `atan(Q/I)`. (Two hours.)

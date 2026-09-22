@@ -68,8 +68,9 @@ class _Sky(QtWidgets.QWidget):
             if not prn or c.get("what") != "tracking":
                 continue
             o = c.get("obs") or {}
-            if str(prn) in azel:
-                az, el = azel[str(prn)]
+            key = ("E" if o.get("sys") == "GAL" else "") + str(prn)     # the fix keys Galileo as E27
+            if key in azel:
+                az, el = azel[key]
                 az += self.p.rotate
                 rr = r * (90 - max(el, 0)) / 90
                 x, y = cx + rr * math.sin(math.radians(az)), cy - rr * math.cos(math.radians(az))
@@ -83,7 +84,7 @@ class _Sky(QtWidgets.QWidget):
             qp.drawEllipse(QtCore.QPointF(x, y), 7, 7)
             if not self.p.private:
                 qp.setPen(QtGui.QColor(230, 230, 230))
-                qp.drawText(int(x + 9), int(y + 4), f"{prn}")
+                qp.drawText(int(x + 9), int(y + 4), key)
 
 
 class sky_panel(gr.basic_block, QtWidgets.QWidget):
@@ -181,7 +182,8 @@ class sky_panel(gr.basic_block, QtWidgets.QWidget):
                 lines.append(f"slot {s}: idle")
                 continue
             o, nv = c.get("obs"), nav.get(s)
-            txt = f"slot {s}: PRN {c['prn']:2d}" if not self.private else f"slot {s}: PRN --"
+            sysl = "E" if (o or {}).get("sys") == "GAL" else "G"
+            txt = f"slot {s}: {sysl}{c['prn']:02d}" if not self.private else f"slot {s}: {sysl}--"
             if o:
                 txt += f"  lock {o['lock']:.2f}  C/N0 {o.get('cn0_db', 0):4.1f}" + (f"  {o['carrier_hz']:+7.1f} Hz" if not self.private else "") \
                     + f"  {o['epochs'] / 1000:4.0f} s"

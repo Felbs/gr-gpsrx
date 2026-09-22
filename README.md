@@ -63,6 +63,7 @@ python apps/gpsrx_replay.py capture.cs16 --fix-file /somewhere/private/fix.json 
 grcc -o build/grc examples/*.grc
 python util/run_qt_shot.py build/grc/gpsrx_radio_qt.py --set "antenna=Antenna B" \
        --call "src.write_setting('biasT_ctrl','true')" --set fix_file=/somewhere/private/live.json --seconds 200
+python apps/gpsrx_replay.py wide.cs16 --rate 4.096e6 --galileo 4   # GPS + Galileo E1-B (needs >= 4 MS/s)
 gnuradio-companion examples/gpsrx_canvas.grc                      # the one to read
 ```
 
