@@ -93,22 +93,41 @@ def test_solver_recovers_the_receiver_from_six_satellites():
 
 
 def test_transmit_time_from_a_channel_count_and_common_instant():
-    """Two channels anchored at different periods, observed at different samples, must be
-    referred to one instant consistently: a channel 2048 samples behind is 1 ms earlier."""
+    """Two channels anchored at different periods whose epochs arrived at different samples must
+    be referred to one instant: an epoch that arrived 2048 samples earlier is slid 1 ms forward."""
     anchor_a = (1000, 302400.0)
     anchor_b = (3500, 302406.0)
-    obs_a = {"epochs": 1000 + 8000, "code_phase": 0.0, "sample_abs": 20_480_000, "carrier_hz": 0.0}
-    obs_b = {"epochs": 3500 + 5500, "code_phase": 0.0, "sample_abs": 20_480_000 - 2048, "carrier_hz": 0.0}
+    obs_a = {"epochs": 1000 + 8000, "epoch_sample": 20_480_000.25, "carrier_hz": 0.0}
+    obs_b = {"epochs": 3500 + 5500, "epoch_sample": 20_480_000.25 - 2048, "carrier_hz": 0.0}
     ta = pvt.transmit_time_sv(obs_a, anchor_a, FS)
     tb = pvt.transmit_time_sv(obs_b, anchor_b, FS)
     assert abs(ta - 302408.0) < 1e-9 and abs(tb - 302411.5) < 1e-9
-    s_ref, out = pvt.refer_to_common_sample([dict(prn=1, eph=None, t_sv=ta, sample_abs=obs_a["sample_abs"]),
-                                             dict(prn=2, eph=None, t_sv=tb, sample_abs=obs_b["sample_abs"])], FS)
-    assert s_ref == 20_480_000
-    assert abs(out[1]["t_sv"] - (302411.5 + 1e-3)) < 1e-12          # slid forward by 1 ms
-    # a code phase of 511.5 chips at the boundary means the NEXT epoch is half a period away: law 2
-    obs_c = dict(obs_a, code_phase=511.5)
-    assert abs(pvt.transmit_time_sv(obs_c, anchor_a, FS) - (302408.0 - 0.5e-3)) < 1e-12
+    s_ref, out = pvt.refer_to_common_sample([dict(prn=1, eph=None, t_sv=ta, epoch_sample=obs_a["epoch_sample"]),
+                                             dict(prn=2, eph=None, t_sv=tb, epoch_sample=obs_b["epoch_sample"])], FS)
+    assert s_ref == obs_a["epoch_sample"]
+    assert abs(out[1]["t_sv"] - (302411.5 + 1e-3)) < 1e-12
+
+
+def test_observable_reports_the_epochs_fractional_arrival_sample():
+    """The channel's period ends on a whole sample a little AFTER the code epoch; the observable
+    must give the epoch's own arrival, fractional. A third of a chip is 100 m: this matters."""
+    from gpsrx import synth
+    from gpsrx.track import Channel
+    x, tr = synth.satellite(9, FS, 0.3, doppler_hz=500.0, code_phase_samples=1000)
+    ch = Channel(9, FS, 500.0, 1000)
+    xd = x.astype(np.complex128)
+    pos = 0
+    for _ in range(250):
+        n = ch.samples_needed()
+        ch.step(xd[pos:pos + n])
+        pos += n
+    o = ch.observable()
+    assert o["samples_in"] - 2 < o["epoch_sample"] <= o["samples_in"]
+    # the synthetic code started at sample 1000 and runs at tr['code_rate']: epoch k arrives at
+    # 1000 + k * 1023 / rate * fs. The tracked channel's epoch count is offset by however many
+    # periods the handover cost; check the arrival against the nearest true epoch.
+    true = 1000 + np.arange(0, 400) * 1023.0 / tr["code_rate"] * FS
+    assert np.min(np.abs(true - o["epoch_sample"])) < 0.3, np.min(np.abs(true - o["epoch_sample"]))   # < 0.15 chip
 
 
 def test_a_wrong_clock_correction_order_would_be_kilometres_off():

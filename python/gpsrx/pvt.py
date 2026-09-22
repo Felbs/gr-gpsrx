@@ -125,27 +125,26 @@ def klobuchar(a, b, lat_deg, lon_deg, az, el, t_gps):
 
 # ---- transmit time from a channel's observable -------------------------------------------
 def transmit_time_sv(obs, anchor, fs):
-    """SV-clock transmit time (s of week) of the signal arriving at obs['sample_abs'].
+    """SV-clock transmit time (s of week) of the code epoch `obs['epochs']`, which arrived at the
+    receiver at fractional input sample obs['epoch_sample'].
 
-    anchor = (epochs_anchor, tow_anchor): the code period on which an anchored subframe's
-    first bit began, and that subframe's TOW. The channel's period boundary at obs is
-    (obs['epochs'] - epochs_anchor) periods later - exactly that many milliseconds of SV time.
-    The channel reports the code phase AT the boundary, where it is 0 by construction; a
-    non-zero value (a period cut mid-way) is the offset to the NEXT epoch: subtract it (law 2)."""
+    anchor = (epochs_anchor, tow_anchor): the code period on which an anchored subframe's first
+    bit began, and that subframe's TOW. Epoch `epochs` is (epochs - epochs_anchor) periods later:
+    exactly that many milliseconds of SV time. No fraction: the channel reports the epoch's own
+    arrival sample, so the range fraction lives in the receive time, not here."""
     e_anchor, tow_anchor = anchor
-    frac = obs.get("code_phase", 0.0) / 1023.0             # fraction of a period, [0, 1)
-    return tow_anchor + (obs["epochs"] - e_anchor) * 1e-3 - frac * 1e-3
+    return tow_anchor + (obs["epochs"] - e_anchor) * 1e-3
 
 
 def refer_to_common_sample(entries, fs):
-    """entries: list of dicts {prn, eph, t_sv, sample_abs, rate_hz}. Each channel's transmit time is
-    at its own boundary sample; slide each to the latest boundary among them by its own code
-    rate (SV time advances at (1 + doppler/L1) x receiver time). Returns t_common and the list
-    with t_sv adjusted (law 3)."""
-    s_ref = max(e["sample_abs"] for e in entries)
+    """entries: [{prn, eph, t_sv, epoch_sample, carrier_hz}]: each channel's transmit time is that of
+    the code epoch arriving at its own (fractional) sample. Slide every one to the latest of those
+    samples: the satellite's clock advances by the receiver interval scaled by (1 + Doppler/L1).
+    Law 3: one receive instant for all. Returns (s_ref, entries)."""
+    s_ref = max(e["epoch_sample"] for e in entries)
     out = []
     for e in entries:
-        dt_rx = (s_ref - e["sample_abs"]) / fs
+        dt_rx = (s_ref - e["epoch_sample"]) / fs
         drift = 1.0 + e.get("carrier_hz", 0.0) / 1575.42e6
         out.append(dict(e, t_sv=e["t_sv"] + dt_rx * drift))
     return s_ref, out
@@ -190,12 +189,19 @@ def solve(entries, iono=None, weights=None):
             th = OMEGA_E * tau                                            # Sagnac
             rot = np.array([[np.cos(th), np.sin(th), 0], [-np.sin(th), np.cos(th), 0], [0, 0, 1]])
             pr = C * (t_rx - t_tx)
-            if it >= 2 and np.linalg.norm(x[:3]) > 1e6:                     # atmosphere, once we know where we are
+            # atmosphere only once the estimate is near the Earth's surface (6.3-6.5 Mm from the
+            # centre) and the satellite is above the horizon; a Klobuchar term evaluated at a
+            # nonsense elevation returned NaN and the least squares then failed to converge
+            rn = np.linalg.norm(x[:3])
+            if it >= 2 and 6.2e6 < rn < 6.6e6:
                 az, el = az_el(x[:3], rot @ sp)
-                pr -= tropo_delay(el)
-                if iono:
-                    la, lo, _ = ecef_to_llh(x[:3])
-                    pr -= C * klobuchar(iono["a"], iono["b"], la, lo, az, el, t_rx)
+                if el > 0.02:
+                    pr -= tropo_delay(el)
+                    if iono:
+                        la, lo, _ = ecef_to_llh(x[:3])
+                        d_i = C * klobuchar(iono["a"], iono["b"], la, lo, az, el, t_rx)
+                        if np.isfinite(d_i):
+                            pr -= d_i
             sats.append((rot @ sp, pr))
         x, A = solve_ls(sats, weights)
         t_rx -= x[3] / C
@@ -220,11 +226,12 @@ def fix_from_channels(channels, fs, iono=None):
         if c.get("eph") is None or c.get("anchor") is None or c.get("obs") is None:
             continue
         t_sv = transmit_time_sv(c["obs"], c["anchor"], fs)
-        entries.append(dict(prn=c["prn"], eph=c["eph"], t_sv=t_sv, sample_abs=c["obs"]["sample_abs"],
-                            carrier_hz=c["obs"].get("carrier_hz", 0.0)))
+        o = c["obs"]
+        entries.append(dict(prn=c["prn"], eph=c["eph"], t_sv=t_sv, carrier_hz=o.get("carrier_hz", 0.0),
+                            epoch_sample=o.get("epoch_sample", o.get("sample_abs"))))
     if len(entries) < 4:
         return None
     s_ref, entries = refer_to_common_sample(entries, fs)
     fx = solve(entries, iono=iono)
-    fx["sample_abs"] = int(s_ref)
+    fx["epoch_sample"] = float(s_ref)
     return fx

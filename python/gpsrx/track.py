@@ -161,11 +161,20 @@ class Channel:
 
     # ---- the observable ------------------------------------------------------------------
     def observable(self):
-        """(epochs, code_phase_chips, carrier_hz, samples_in): everything the solver needs to
-        turn this channel into a pseudorange once the Nav Decoder has anchored an epoch to a TOW."""
+        """Everything the solver needs to make this channel a pseudorange once the Nav Decoder has
+        anchored an epoch to a TOW.
+
+        After step() the code phase is a little PAST the 1023-chip boundary (the period consumed
+        whole samples; the crossing fell between two of them). The crossing itself - the instant
+        the satellite's code epoch `epochs` arrived - is `epoch_sample` samples into the stream,
+        fractional: samples_in minus the overshoot converted at the current code rate. Reported
+        to the solver as one number, so no sign convention is left for a caller to get wrong.
+        (Measured before this: 0.05-0.33 chips of overshoot read as a wrong-signed range error of
+        up to 100 m per satellite, and the boundary rounded to a whole sample was 146 m more.)"""
         s = self.s
+        overshoot_samples = s.code_phase * self.fs / s.code_rate
         return {"prn": self.prn, "epochs": s.epochs, "code_phase": s.code_phase, "carrier_hz": s.carrier_hz,
-                "samples_in": s.samples_in, "lock": s.lock}
+                "samples_in": s.samples_in, "epoch_sample": s.samples_in - overshoot_samples, "lock": s.lock}
 
 
 def track_array(x, fs, prn, doppler_hz, code_phase_samples, n_ms, **kw):

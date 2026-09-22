@@ -151,8 +151,13 @@ class Framer:
                     d29s, d30s = int(word[28]), int(word[29])
                 if ok_all:
                     sf = ubits(words[1], 20, 22)
-                    if 1 <= sf <= 5:
-                        tow = ubits(words[1], 1, 17) * 6.0        # HOW: TOW count of the NEXT subframe
+                    tow_count = ubits(words[1], 1, 17)
+                    # a false frame: ten words passing parity by chance happens over a long scan.
+                    # The HOW's TOW count is < 100800 in a week and the subframe id is 1-5; and
+                    # consecutive subframes must be 6 s apart with ids stepping 1..5 - checked by
+                    # NavDecoder against the previous subframe.
+                    if 1 <= sf <= 5 and tow_count < 100800:
+                        tow = tow_count * 6.0                     # HOW: TOW count of the NEXT subframe
                         found = (sf, tow, words, i, pol)
                         break
             if found:
@@ -247,6 +252,7 @@ class NavDecoder:
         self.subframes = []           # (sfid, tow, first_bit_index)
         self.anchors = []             # (period_index of the subframe's first bit, tow of THAT subframe start)
         self.n_periods = 0
+        self.n_rejected = 0           # parity-clean frames refused for being inconsistent with the last
 
     def feed(self, i_prompt, period_index):
         self.n_periods += 1
@@ -259,14 +265,25 @@ class NavDecoder:
         if len(self.bits.bits) < self.framer.pos + 302:
             return []
         new = self.framer.scan(self.bits.bits)
+        kept = []
         for sf, tow_next, words, i, pol in new:
-            parse_subframe(self.eph, sf, words)
             # the HOW's TOW is the start of the NEXT subframe; THIS subframe began 6 s earlier,
             # at bit i, which began on code period self.bits.bits[i][1]
             tow_this = tow_next - 6.0
+            period = int(self.bits.bits[i][1])
+            if self.subframes:
+                # consistency with the last accepted subframe: 6 s of TOW per 6000 periods (mod week)
+                sf0, tow0, i0 = self.subframes[-1]
+                p0 = self.anchors[-1][0]
+                dt = (tow_this - tow0) % 604800
+                if abs(dt - (period - p0) * 1e-3) > 2e-3 or (sf - sf0) % 5 != ((period - p0) // 6000) % 5:
+                    self.n_rejected += 1
+                    continue                                       # a false frame, or a slipped one
+            parse_subframe(self.eph, sf, words)
             self.subframes.append((sf, tow_this, i))
-            self.anchors.append((int(self.bits.bits[i][1]), float(tow_this)))
-        return new
+            self.anchors.append((period, float(tow_this)))
+            kept.append((sf, tow_next, words, i, pol))
+        return kept
 
     @property
     def complete(self):
