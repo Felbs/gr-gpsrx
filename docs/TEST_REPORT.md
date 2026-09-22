@@ -11,6 +11,7 @@
 | `test_pvt.py` (4) | six-satellite synthetic constellation round trip to < 0.5 m; transmit time from the epoch count and the common receive instant; the epoch's fractional arrival sample to < 0.15 chip; the size of the clock-order error |
 | `test_acquire.py` (1) | four synthetic satellites found at their code phase (< 1 sample) and Doppler (< 15 Hz after refinement), no absent PRN reported, the metric separates present from absent by > 1.5x |
 | `qa_receiver.py` (1, GNU Radio) | the whole flowgraph on a synthetic sky: Acquisition finds all four and assigns them, every Channel locks and reports an absolute observable, every Nav Decoder anchors on the 6 s grid with 6000 periods between subframes |
+| `qa_channel_cc.py` (2, GNU Radio) | the C++ Channel against the Python one on the same synthetic sky: identical epoch counts, code phase within 0.02 chip, Doppler within 2 Hz, data bits agree > 99%; **gate 1 in C++: eight channels x 4 s in 0.25 s = 15.7x real time** |
 | `qa_channel.py` (3, GNU Radio) | idle channel; eight channel blocks lock on a synthetic sky and publish observables; a lost signal is reported and the channel idles |
 
 ## Gate 1: throughput (decides Python vs C++ for the Channel)
@@ -56,6 +57,19 @@ Replay lesson: a file source runs as fast as its readers, and idle channels read
 capture streamed past during the first 7 s search and were never tracked. The Acquisition block's
 `hold` stops the stream while a search runs (replay only; live, the radio paces it).
 
+## The flowgraph with C++ channels, and LIVE
+
+| run | result |
+|---|---|
+| Receiver (C++ channels), whole 240 s capture | 90 s wall including four 7 s search holds; 179 fixes (one per stream second); rms 2.5 m, PDOP 2.4, 15-fix scatter 9.5 m; **1.9 m from the offline engine's fix** on the same file |
+| **`build/grc/gpsrx_radio_qt.py` (grcc output, unedited) on an SDRplay RSPdx, active antenna, 200 s** | 8 satellites found in a 7.4 s search, all eight tracked (lock 0.80-0.96), 31 subframes each; **fix from 8 satellites, rms 2.6 m, PDOP 2.9, 15-fix scatter 9.8 m, ionosphere decoded live** |
+| live fix vs the offline fix on the earlier recording | **7.2 m** (E +6.0, N -1.3, U -3.7): a different constellation, hours apart, the same antenna |
+
+That last number is the strongest evidence on the 150 m question above: a receiver whose
+pseudoranges carried a systematic error would land somewhere else with a different geometry.
+Two skies agreeing to 7 m says the error is small. numpy-gps's two fixes on the earlier
+captures differ from each other by 102 m. The owner's known coordinates remain the final word.
+
 ## Defects found by testing (all fixed)
 
 1. Costas discriminator written as `atan2(Q, I)`: a 180-degree data flip read as a 165-degree phase error, the carrier slewed 100 Hz, every bit transition glitched. Must be `atan(Q/I)`. (Two hours.)
@@ -70,3 +84,7 @@ capture streamed past during the first 7 s search and were never tracked. The Ac
 10. A code phase found seconds earlier was wrapped forward with the NOMINAL code period; at 5 kHz of Doppler the code runs 3 chips/s fast, 22 chips over a 7 s search. Wrapped with the Doppler-shifted period.
 11. The Channel block's `epoch_sample` was relative to its own engine start, not the flowgraph's sample clock: fine for one channel, wrong for a solve across eight. Made absolute.
 12. The GNU Radio Python gateway looks message handlers up by NAME: a lambda handler raised `no attribute '<lambda>'` on a scheduler thread and the test saw an empty sink.
+13. An idle C++ channel consumed two seconds of test samples faster than the test's sleep could post the assignment: post before start (messages queue). Also true of any fast block.
+14. PVT throttled on the wall clock: one fix per wall second, five per second of capture at 5x replay. The receiver's clock is the sample counter; throttle on that.
+15. gr-soapy's per-channel `settings` cannot carry SDRplay's bias-T (`biasT_ctrl` is a device-level setting): `ValueError: Unsupported setting`. Applied with the block's device-level `write_setting`.
+16. The extension module copied beside the package made plain CPython's `import gpsrx` raise `ImportError` (GNU Radio's DLLs not loadable there), which the `ModuleNotFoundError` guard let through. Guard on `ImportError`.

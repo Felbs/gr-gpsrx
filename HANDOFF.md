@@ -47,3 +47,12 @@ Run: apps/gpsrx_replay.py CAPTURE --fix-file lab_local/x.json  |  util/run_qt_sh
 the offline fix. Private: lab_local/{fix_replay,fix_canvas,fix_qt}.json, sky_panel_shot.png (a sky plot at a known time is a
 coarse location hint - user decides if it is ever shown). Next: C++ Channel on Ubuntu (gate 1), live run (radio_qt.grc, RSPdx
 ANT-B bias-T), then the walkthrough.
+
+## 9/22 dawn — LIVE FIX + C++ CHANNEL. LOCAL @a50487b+ (still no GitHub). This PC CAN build C++: VS 2022 Build Tools
+(cl 14.44) + VS's cmake/ninja + radioconda headers -> util/build_win.cmd -> build/cpp/{lib/gnuradio-gpsrx.dll,
+python/gpsrx/bindings/gpsrx_python.cp312-win_amd64.pyd}; examples/_devpath.py copies the pyd beside the package (gitignored)
+and add_dll_directory's the lib. Binding is hand-kept (GEN_AUTOMATIC 0, HASH 0: castxml has no -fPIC on MSVC).
+Gate 1 C++: 15.7x. Live: util/run_qt_shot.py build/grc/gpsrx_radio_qt.py --set "antenna=Antenna B" --call
+"src.write_setting('biasT_ctrl','true')" --set fix_file=lab_local/fix_live.json --seconds 200 --png lab_local/live_shot.png
+-> 8 sats rms 2.6 m PDOP 2.9; 7.2 m from the offline fix (different constellation). Private: lab_local/fix_live.json,
+live_shot.png. Ubuntu/Pi were unreachable tonight (Linux build untested). Next: walkthrough doc, Linux build, GitHub when told.
