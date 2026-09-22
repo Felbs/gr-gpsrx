@@ -13,6 +13,9 @@
 > evidence and the defects found on the way; `docs/GNSS_SDR_COMPARISON.md` the head-to-head
 > against gnss-sdr on the same air (same answer; theirs ~30% quieter per epoch) and what to borrow.
 
+**Start with [`docs/WALKTHROUGH.md`](docs/WALKTHROUGH.md)** - the receiver one block at a time, with
+figures made from synthetic satellites you can regenerate.
+
 The point is educational: every stage of a GPS receiver as a block on the canvas, every
 intermediate as a message you can plot, and a real position at the end. The reference and
 oracle is [numpy-gps](https://github.com/Felbs/numpy-gps), the offline pure-NumPy receiver; the

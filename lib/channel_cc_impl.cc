@@ -136,6 +136,7 @@ std::complex<double> tracker::step(const std::complex<float>* x, int n)
     if (bit_offset < 0 && coh_ > 1) {
         f_avg_ = have_f_avg_ ? 0.99 * f_avg_ + 0.01 * carrier_hz : carrier_hz;
         have_f_avg_ = true;
+        cd_avg_ = 0.99 * cd_avg_ + 0.01 * code_dop_;
         bit_sync(ip);
     }
     // stage 2: coherent window over a whole bit, one loop update per window (track.py)
@@ -178,7 +179,7 @@ void tracker::bit_sync(double ip)
     if (last_ip_ != 0.0 && (ip < 0) != (last_ip_ < 0) && lock > 0.5)
         flips_[(epochs - 1) % 20]++;
     last_ip_ = ip;
-    if (epochs < 300 || lock <= 0.8)
+    if (epochs < 300 || lock <= 0.5)
         return;
     int64_t top = 0, second = 0, arg = 0;
     for (int i = 0; i < 20; i++) {
@@ -198,6 +199,8 @@ void tracker::bit_sync(double ip)
             carr_corr_ = f_avg_ - doppler0_;
             carrier_hz = f_avg_;
         }
+        code_dop_ = cd_avg_; // and the averaged code-rate correction (track.py)
+        code_rate = CODE_RATE + carrier_hz * CARRIER_TO_CODE + code_dop_;
     }
 }
 
@@ -263,6 +266,7 @@ void channel_cc_impl::on_assign(pmt::pmt_t msg)
     pend_prn_ = prn;
     pend_dop_ = num(msg, "doppler_hz", 0.0);
     pend_sample_ = num(msg, "sample", 0.0);
+    start_at_ = (int64_t)num(msg, "start_sample", 0.0); // replay: start exactly here (deterministic)
     have_pending_ = true;
     eng_.reset();
     prn_ = prn;
@@ -310,6 +314,10 @@ int channel_cc_impl::general_work(int noutput_items,
             return 0;
         }
         const int64_t start = nitems_read(0);
+        if (start_at_ > start) { // not yet: eat input up to the start sample, no more
+            consume(0, (int)std::min<int64_t>(n_in, start_at_ - start));
+            return 0;
+        }
         // acquisition's code start is `sample` absolute, seconds old by now: wrap it forward
         // with the DOPPLER-SHIFTED code period (nominal would be 3 chips/s wrong at 5 kHz)
         const double period = fs_ * tracker::CODE_LEN / (tracker::CODE_RATE * (1.0 + pend_dop_ / tracker::L1_HZ));

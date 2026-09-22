@@ -62,7 +62,7 @@ private:
     double pll_bw_narrow_, dll_bw_narrow_;
     int coh_;
     int64_t flips_[20] = { 0 };
-    double last_ip_ = 0.0, f_avg_ = 0.0;
+    double last_ip_ = 0.0, f_avg_ = 0.0, cd_avg_ = 0.0;
     bool have_f_avg_ = false, aligned_ = false;
     std::complex<double> acc_[3] = { 0, 0, 0 };
     double acc_dt_ = 0.0;
@@ -85,6 +85,7 @@ private:
     bool have_pending_ = false;
     int pend_prn_ = 0;
     double pend_dop_ = 0.0, pend_sample_ = 0.0;
+    int64_t start_at_ = 0;
     std::unique_ptr<tracker> eng_;
     int64_t t0_abs_ = 0;
     int64_t n_periods_ = 0;

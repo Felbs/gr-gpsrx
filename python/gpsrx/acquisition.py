@@ -112,6 +112,12 @@ class acquisition(gr.sync_block):
         self.n_searches += 1
         for r in found:
             r["sample"] = float(s0 + r["code_phase"])          # absolute: the flowgraph's one clock
+        # replay (hold): the stream is paused, so every channel is within a buffer of the
+        # snapshot's end. Tell it the exact sample to start on and the run becomes DETERMINISTIC
+        # (the same file gives the same satellites, anchors and fixes every time - before this,
+        # the start depended on thread timing and A/B measurements needed repeats). Live, the
+        # search's own duration has already gone by: start_sample=0 means 'now'.
+        start_sample = int(s0 + self.snap_n + 0.25 * self.fs) if self.hold else 0
         self.message_port_pub(pmt.intern("sky"), pmt.to_pmt(dict(
             sample0=int(s0), seconds=float(time.time() - t), birds=found, search=self.n_searches,
             lo_offset_hz=float(self.lo_offset_hz or 0.0))))
@@ -127,4 +133,4 @@ class acquisition(gr.sync_block):
                 self.slots[s] = r["prn"]                        # claimed until the channel says otherwise
                 self.message_port_pub(pmt.intern("assign"), pmt.to_pmt(dict(
                     slot=s, prn=int(r["prn"]), doppler_hz=float(r["doppler_hz"]), sample=float(r["sample"]),
-                    metric=float(r["metric"]))))
+                    metric=float(r["metric"]), start_sample=start_sample)))

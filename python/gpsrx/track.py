@@ -85,6 +85,7 @@ class Channel:
         self._acc_dt = 0.0
         self._aligned = False
         self._f_avg = None                     # carrier Doppler averaged over ~100 periods (stage 1)
+        self._cd_avg = 0.0                     # the DLL's rate correction, averaged likewise
         self._m2 = self._m4 = 0.0              # C/N0: running second and fourth moments of |P|
         self._mn = 0
         # acquisition hands over a code phase in SAMPLES (the sample at which the code starts);
@@ -179,6 +180,7 @@ class Channel:
             # bit sync (stage 1 only): where, mod 20, does the prompt's sign flip?
             if self.bit_offset is None and self.coh > 1:
                 self._f_avg = s.carrier_hz if self._f_avg is None else 0.99 * self._f_avg + 0.01 * s.carrier_hz
+                self._cd_avg = 0.99 * self._cd_avg + 0.01 * self.code_dop
                 self._bit_sync(ip)
             # coherent window: a whole data bit once the edges are known, one period before
             in_window = self.bit_offset is not None
@@ -229,7 +231,7 @@ class Channel:
         if self._last_ip != 0.0 and np.sign(ip) != np.sign(self._last_ip) and s.lock > 0.5:
             self._flips[(s.epochs - 1) % 20] += 1
         self._last_ip = ip
-        if s.epochs >= 300 and self._flips.max() >= 8 and s.lock > 0.8:
+        if s.epochs >= 300 and self._flips.max() >= 8 and s.lock > 0.5:
             top = np.sort(self._flips)[::-1]
             if top[0] >= 3 * max(top[1], 1):
                 # a flip counted for period k means period k is the first of a new bit; a window
@@ -247,6 +249,11 @@ class Channel:
                 if self._f_avg is not None:
                     self.carr_corr = self._f_avg - self.doppler0
                     s.carrier_hz = self._f_avg
+                # ...and the DLL likewise: at 1 ms its rate correction jitters +-1 chip/s, and
+                # a 0.5 Hz loop started from +1 chip/s walks the code half a chip before it can
+                # answer (measured; in a noisier run it walked off the peak entirely)
+                self.code_dop = self._cd_avg
+                s.code_rate = CODE_RATE + s.carrier_hz * CARRIER_TO_CODE + self.code_dop
                 s.pll_e_prev = s.dll_e_prev = 0.0
                 self._acc[:] = 0
                 self._acc_n, self._acc_dt = 0, 0.0

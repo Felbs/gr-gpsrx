@@ -79,6 +79,7 @@ class channel(gr.basic_block):
             # code phase, made absolute); the engine wants it relative to the first sample it sees,
             # so remember the absolute index and convert in work()
             self._pending = (prn, float(d.get("doppler_hz", 0.0)), float(d.get("sample", 0)))
+            self._start_at = int(d.get("start_sample", 0))   # replay: start exactly here (deterministic)
             self.eng = None
             self.prn = prn
 
@@ -97,6 +98,10 @@ class channel(gr.basic_block):
             if self.eng is None:
                 prn, dop, sample = self._pending
                 start = self.nitems_read(0)
+                if self._start_at > start:
+                    # not yet: eat input up to the start sample, no more
+                    self.consume(0, min(n_in, self._start_at - start))
+                    return 0
                 # the engine's sample 0 is THIS call's first sample; acquisition's code start is
                 # `sample` absolute, usually seconds in the past by the time the search finishes.
                 # The code repeats every 1023 chips AT ITS DOPPLER-SHIFTED RATE: extrapolating with
