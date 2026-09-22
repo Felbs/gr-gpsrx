@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  engine:
+    name: engine tests (no GNU Radio)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install numpy pytest
+      - name: numpy-gps (the oracle for gate 0)
+        run: git clone --depth 1 https://github.com/Felbs/numpy-gps.git ../numpy-gps
+      - run: NUMPY_GPS_DIR=$PWD/../numpy-gps python -m pytest -q tests
+
+  gnuradio:
+    name: C++ block + GNU Radio QA (Ubuntu packages)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: GNU Radio 3.10 from Ubuntu
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gnuradio-dev python3-gnuradio cmake pybind11-dev \
+            libspdlog-dev libvolk-dev python3-numpy python3-pytest
+      - name: build
+        run: |
+          mkdir build && cd build
+          cmake -DCMAKE_BUILD_TYPE=Release ..
+          make -j"$(nproc)"
+      - name: QA
+        run: |
+          python3 python/gpsrx/qa_channel_cc.py
+          python3 python/gpsrx/qa_channel.py
+          python3 python/gpsrx/qa_receiver.py
