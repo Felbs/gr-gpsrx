@@ -82,13 +82,15 @@ blocks:
     - 12
     rotation: 0
     state: enabled
-- name: bias
+- name: settings
   id: parameter
   parameters:
-    label: Bias-T (active antenna)
-    type: intx
-    value: '0'
-    short_id: b
+    label: Channel settings (key=value,...)
+    type: str
+    value: '""'
+    short_id: s
+    comment: 'bias-T for an active antenna is a DEVICE setting on SDRplay (biasT_ctrl),
+      not a channel one: util/run_qt_shot.py ... --call src.write_setting(''biasT_ctrl'',''true'')'
   states:
     bus_sink: false
     bus_source: false
@@ -110,7 +112,7 @@ blocks:
     bus_source: false
     bus_structure: null
     coordinate:
-    - 1200
+    - 1240
     - 12
     rotation: 0
     state: enabled
@@ -126,9 +128,11 @@ blocks:
     bandwidth0: 2.5e6
     antenna0: antenna
     gain0: gain
-    agc0: 'False'
+    agc0: 'True'
+    settings0: settings
     minoutbuf: '4194304'
-    comment: 'L1 C/A: 1575.42 MHz'
+    comment: 'L1 C/A: 1575.42 MHz. GPS is under the noise, so the AGC only sees noise
+      - and that is fine'
   states:
     bus_sink: false
     bus_source: false
