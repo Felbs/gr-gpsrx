@@ -66,3 +66,28 @@ def test_inav_page_round_trip():
     assert dec.n_crc >= 1 and dec.n_crc_fail == 0, (dec.n_crc, dec.n_crc_fail)
     wt, f = got[0]
     assert wt == 1 and "sqrtA" in f
+
+
+def test_pilot_secondary_sync_and_pure_pll():
+    """A synthetic E1 satellite (E1-B x symbols + E1-C x CS25) through the pilot-aided channel:
+    the secondary-code sync must name the TRUE offset (the channel's first prompt is the partial
+    period before the code start, so its epoch k is the satellite's period k-1: offset 1), and
+    after it the four-quadrant PLL on the wiped pilot holds phase to a few degrees. An off-by-one
+    in the sync's epoch bookkeeping once put the wipe one chip late on 12 of 25 positions: the
+    Costas loop was blind to it (it only lost coherent gain), the pure PLL lost lock in a second."""
+    from gpsrx import synth, track
+    fs = 4.096e6
+    x, tr = synth.satellite(11, fs, 2.6, doppler_hz=-1810.0, code_phase_samples=900, cn0_dbhz=45.0, system="GAL", seed=3)
+    ch = track.Channel(11, fs, -1790.0, 900, pll_bw=12.0, dll_bw=1.0, pll_bw_narrow=15.0, dll_bw_narrow=0.5,
+                       coherent_ms=20, pll_order=3, signal=gale1.SIGNAL_E1)
+    pos, errs = 0, []
+    while pos + ch.samples_needed() <= len(x):
+        n = ch.samples_needed()
+        ch.step(x[pos:pos + n])
+        pos += n
+        if ch.bit_offset is not None and (ch.s.epochs - ch.bit_offset) % ch.coh == 0:
+            errs.append(ch.s.pll_e_prev)
+    assert ch.bit_offset == 1, ch.bit_offset
+    assert len(errs) > 30
+    assert np.max(np.abs(errs[5:])) < 0.06, np.max(np.abs(errs[5:]))       # cycles: < 22 degrees, every window
+    assert ch.s.lock > 0.95 and abs(ch.s.carrier_hz - tr["doppler_hz"]) < 2.0, (ch.s.lock, ch.s.carrier_hz)

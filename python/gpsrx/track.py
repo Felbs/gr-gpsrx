@@ -264,7 +264,12 @@ class Channel:
             #    phase accumulation (above) is the loop's integrator.
             # atan(Q/I), NOT atan2: the single-argument form is blind to a 180-degree data flip
             # (atan2 read a bit transition as a 165-degree phase error and slewed the carrier 100 Hz)
-            e_pll = np.arctan(qp_ / ip_) / (2 * np.pi) if ip_ != 0 else 0.0     # cycles, (-1/4, 1/4)
+            if self._secondary is not None and self.bit_offset is not None:
+                # a PILOT with its secondary code wiped carries no data: a pure four-quadrant PLL,
+                # (-1/2, 1/2) cycle of pull-in and no half-cycle ambiguity (numpy-gps's E1-C chain)
+                e_pll = np.arctan2(qp_, ip_) / (2 * np.pi)
+            else:
+                e_pll = np.arctan(qp_ / ip_) / (2 * np.pi) if ip_ != 0 else 0.0     # cycles, (-1/4, 1/4)
             if self._w3 > 0.0:
                 # third order (narrow stage): the error drives an acceleration integrator, that plus a
                 # proportional term drives the frequency, plus a direct term
@@ -295,7 +300,10 @@ class Channel:
         if len(self._sec_hist) < 4 * n or s.epochs < 300 or s.lock <= 0.5:
             return
         hist = np.array(self._sec_hist[-4 * n:])
-        k = s.epochs - 4 * n + np.arange(4 * n)                 # the epoch count each sign belongs to
+        # the epoch count each sign belongs to: the LAST entry is this period, whose count is
+        # s.epochs (already incremented). Off by one here and the wipe lands one chip late on 12 of
+        # the 25 positions - a Costas loop is blind to it (it only loses coherent gain), a pure PLL is not
+        k = s.epochs - 4 * n + 1 + np.arange(4 * n)
         best = None
         for off in range(n):
             score = float(np.sum(hist * self._secondary[(k - 1 - off) % n])) / (4 * n)
@@ -305,21 +313,41 @@ class Channel:
         if abs(score) >= 0.9:
             self.bit_offset = off
             self._sec_pol = 1.0 if score > 0 else -1.0
-            self.pll_t1, self.pll_t2 = loop_gains(self.pll_bw_narrow, k=1.0)
-            self.dll_t1, self.dll_t2 = loop_gains(self.dll_bw_narrow)
-            if self.pll_order == 3:
-                self._w3 = self.pll_bw_narrow / 0.7845
-                self._acc3 = 0.0
-                self._vel3 = (self._f_avg - self.doppler0) if self._f_avg is not None else self.carr_corr
-            s.pll_e_prev = s.dll_e_prev = 0.0
-            self._acc[:] = 0
-            self._acc_n, self._acc_dt = 0, 0.0
-            self._aligned = False
-            if self._f_avg is not None:
-                self.carr_corr = self._f_avg - self.doppler0
-                s.carrier_hz = self._f_avg
-            self.code_dop = self._cd_avg
-            s.code_rate = self.code_rate0 + s.carrier_hz * (self.code_rate0 / self.sig["carrier_hz"]) + self.code_dop
+            self._switch_to_narrow()
+
+    def _switch_to_narrow(self):
+        """Stage 1 -> 2, common to bit sync and secondary-code sync: narrow loops, the coherent
+        window, the averaged handover. The PLL bandwidth is capped so that bandwidth x window stays
+        at 0.3 or below (15 Hz x 20 ms; a 100 ms pilot window gets 3 Hz): at 1.5 the loop is
+        unstable and lost every satellite within a second (measured on the wideband capture)."""
+        s = self.s
+        bw = min(self.pll_bw_narrow, 0.3 / (self.coh * self.T))
+        self.pll_bw_eff = bw
+        # k=1 here, not the 0.25 of the 1 ms stage: the proportional path of this filter
+        # form corrects (2 zeta wn / k) * T cycles per cycle of error per update, 1.7 at
+        # T=20 ms with k=0.25 - over unity, and the loop tore itself apart on every
+        # bandwidth tried (measured); with k=1 it is 0.4 and 5-15 Hz all hold
+        self.pll_t1, self.pll_t2 = loop_gains(bw, k=1.0)
+        self.dll_t1, self.dll_t2 = loop_gains(self.dll_bw_narrow)
+        if self.pll_order == 3:
+            self._w3 = bw / 0.7845
+            self._acc3 = 0.0
+            self._vel3 = (self._f_avg - self.doppler0) if self._f_avg is not None else self.carr_corr
+        s.pll_e_prev = s.dll_e_prev = 0.0
+        self._acc[:] = 0
+        self._acc_n, self._acc_dt = 0, 0.0
+        self._aligned = False
+        # start the narrow loop from the AVERAGED frequency: the 1 ms loop jitters
+        # +-5-10 Hz, and a 20 ms window can only pull in ~10 Hz (a handover that
+        # landed at +10 Hz drove one synthetic bird to a false lock 18 Hz off, measured)
+        if self._f_avg is not None:
+            self.carr_corr = self._f_avg - self.doppler0
+            s.carrier_hz = self._f_avg
+        # ...and the DLL likewise: at 1 ms its rate correction jitters +-1 chip/s, and
+        # a 0.5 Hz loop started from +1 chip/s walks the code half a chip before it can
+        # answer (measured; in a noisier run it walked off the peak entirely)
+        self.code_dop = self._cd_avg
+        s.code_rate = self.code_rate0 + s.carrier_hz * (self.code_rate0 / self.sig["carrier_hz"]) + self.code_dop
 
     def _bit_sync(self, ip):
         """Stage 1 -> 2: after the loops have settled, histogram the prompt's sign flips mod 20;
@@ -336,27 +364,7 @@ class Channel:
                 # a flip counted for period k means period k is the first of a new bit; a window
                 # therefore ends after period k-1, i.e. when epochs == k (mod 20)
                 self.bit_offset = int(np.argmax(self._flips))
-                # k=1 here, not the 0.25 of the 1 ms stage: the proportional path of this filter
-                # form corrects (2 zeta wn / k) * T cycles per cycle of error per update, 1.7 at
-                # T=20 ms with k=0.25 - over unity, and the loop tore itself apart on every
-                # bandwidth tried (measured); with k=1 it is 0.4 and 5-15 Hz all hold
-                self.pll_t1, self.pll_t2 = loop_gains(self.pll_bw_narrow, k=1.0)
-                self.dll_t1, self.dll_t2 = loop_gains(self.dll_bw_narrow)
-                if self.pll_order == 3:
-                    self._w3 = self.pll_bw_narrow / 0.7845
-                    self._acc3 = 0.0
-                    self._vel3 = (self._f_avg - self.doppler0) if self._f_avg is not None else self.carr_corr
-                # start the narrow loop from the AVERAGED frequency: the 1 ms loop jitters
-                # +-5-10 Hz, and a 20 ms window can only pull in ~10 Hz (a handover that
-                # landed at +10 Hz drove one synthetic bird to a false lock 18 Hz off, measured)
-                if self._f_avg is not None:
-                    self.carr_corr = self._f_avg - self.doppler0
-                    s.carrier_hz = self._f_avg
-                # ...and the DLL likewise: at 1 ms its rate correction jitters +-1 chip/s, and
-                # a 0.5 Hz loop started from +1 chip/s walks the code half a chip before it can
-                # answer (measured; in a noisier run it walked off the peak entirely)
-                self.code_dop = self._cd_avg
-                s.code_rate = self.code_rate0 + s.carrier_hz * (self.code_rate0 / self.sig["carrier_hz"]) + self.code_dop
+                self._switch_to_narrow()
                 s.pll_e_prev = s.dll_e_prev = 0.0
                 self._acc[:] = 0
                 self._acc_n, self._acc_dt = 0, 0.0

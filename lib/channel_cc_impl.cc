@@ -203,7 +203,11 @@ std::complex<double> tracker::step(const std::complex<float>* x, int n)
     const double ipw = Pw.real(), qpw = Pw.imag();
     // 3. PLL: Costas discriminator atan(Q/I) (NOT atan2: blind to the data flips), error in
     //    cycles, loop filter -> frequency correction; the NCO phase accumulation integrates it
-    const double e_pll = ipw != 0.0 ? std::atan(qpw / ipw) / (2.0 * M_PI) : 0.0;
+    // a pilot with its secondary code wiped carries no data: a pure four-quadrant PLL, +-1/2 cycle
+    // of pull-in and no half-cycle ambiguity (track.py)
+    const bool pure_pll = !secondary_.empty() && bit_offset >= 0;
+    const double e_pll = pure_pll ? std::atan2(qpw, ipw) / (2.0 * M_PI)
+                                  : (ipw != 0.0 ? std::atan(qpw / ipw) / (2.0 * M_PI) : 0.0);
     if (w3_ > 0.0) { // third order: acceleration integrator, rate integrator, direct term (track.py)
         acc3_ += w3_ * w3_ * w3_ * e_pll * dt_loop;
         vel3_ += (acc3_ + 1.1 * w3_ * w3_ * e_pll) * dt_loop;
@@ -224,8 +228,11 @@ std::complex<double> tracker::step(const std::complex<float>* x, int n)
 
 void tracker::switch_to_narrow()
 {
+    // bandwidth x window capped at 0.3 (15 Hz x 20 ms; a 100 ms pilot window gets 3 Hz): at 1.5
+    // the loop lost every satellite within a second (track.py)
+    const double bw = std::min(pll_bw_narrow_, 0.3 / (coh_ * period_s()));
     // k = 1 for the narrow stage (see track.py: with k = 0.25 the 20 ms loop is over unity gain)
-    loop_gains(pll_bw_narrow_, 1.0, pll_t1_, pll_t2_);
+    loop_gains(bw, 1.0, pll_t1_, pll_t2_);
     loop_gains(dll_bw_narrow_, 1.0, dll_t1_, dll_t2_);
     pll_e_prev = dll_e_prev = 0.0;
     acc_[0] = acc_[1] = acc_[2] = 0;
@@ -236,7 +243,7 @@ void tracker::switch_to_narrow()
         carrier_hz = f_avg_;
     }
     if (pll_order_ == 3) {
-        w3_ = pll_bw_narrow_ / 0.7845;
+        w3_ = bw / 0.7845;
         acc3_ = 0.0;
         vel3_ = have_f_avg_ ? f_avg_ - doppler0_ : carr_corr_;
     }
@@ -260,7 +267,7 @@ void tracker::secondary_sync(double ip)
     for (int off = 0; off < m; off++) {
         double sc = 0.0;
         for (int j = 0; j < N; j++) {
-            const int64_t k = epochs - N + j; // the epoch count this sign belongs to
+            const int64_t k = epochs - N + 1 + j; // the epoch count this sign belongs to (last = this period = epochs)
             sc += sec_hist_[j] * secondary_[(int)(((k - 1 - off) % m + m) % m)];
         }
         sc /= N;

@@ -196,6 +196,7 @@ the same lane as gnss-sdr, 2-3 m apart; a live hour on an SDRplay RSPdx at rms 2
 One frequency. Galileo E1 is in - pilot-aided (`gale1.py`, `nav_gal.py`; needs 4 MS/s), in both
 Channel engines (the C++ one carries the code tables, so `--galileo 4` works live), and a joint fix
 beats GPS-only on the same samples (1.8 m vs 3.8 m scatter, settled; C++ and Python agree to
-0.07 m per fix). 100 ms pilot integration is the next step there. The FLL exists but buys nothing
-measurable (the 31 dB-Hz floor is the 1 ms first stage's lock threshold). No carrier-phase
-positioning, no RTK.
+0.07 m per fix); the pilot runs a pure four-quadrant PLL after the secondary-code wipe and can
+integrate the whole 100 ms sequence (the narrow loop's bandwidth is capped at 0.3 / window, so it
+does). The FLL exists but buys nothing measurable (the 31 dB-Hz floor is the 1 ms first stage's
+lock threshold). No carrier-phase positioning, no RTK.

@@ -117,8 +117,6 @@ All of it is in `docs/TEST_REPORT.md`; the headlines, no coordinates anywhere:
 ## What is not done
 
 - One frequency (L1/E1). No carrier-phase positioning, no RTK, no PPP, no SBAS - gnss-sdr has them.
-- The Galileo pilot integrates 20 ms; the 100 ms window the secondary code allows needs a
-  bandwidth ramp after the handover (measured: a direct switch does not lock).
 - The wide LO search for RTL-SDR crystals is tested on synthetic satellites, not yet on the bench.
 - Acquisition is snapshot-and-search every N seconds; a satellite rising mid-run is picked up at
   the next interval.

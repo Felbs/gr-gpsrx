@@ -238,6 +238,31 @@ depends on the analog filter (the BOC lobes sit at +-1 MHz, where a 5 MHz IF fil
 differs from the centre), and the two runs had different bandwidth settings. It is solved per
 fix, so the position does not depend on it; the number itself is not a GGTO measurement.
 
+## The pilot PLL, and the bug a Costas loop cannot see (22 September, late)
+
+A reflection over the lab's earlier GPS notes found one thing numpy-gps did that this receiver did
+not: a **pure four-quadrant PLL on the dataless pilot** (once the secondary code is wiped, E1-C
+carries no sign flips, so `atan2(Q, I)` is legitimate: +-half a cycle of pull-in, no half-cycle
+ambiguity). Switching to it made things WORSE - every Galileo channel lost lock within a second of
+the handover, on the synthetic satellite and on the wideband capture alike. The trace showed the
+discriminator at 0 for two windows and then +0.47 cycles, and again every few windows: the wipe was
+applying the wrong chip on some periods. **The secondary-code sync had an off-by-one** (the last
+entry of the sign history is the current period, whose count is `epochs`, not `epochs - 1`), so it
+named an offset one short of the truth, and CS25 shifted by one disagrees on 12 of its 25 chips.
+The Costas loop, sign-blind, had never noticed: it only lost coherent gain on those periods, and
+tracked. The pure PLL is not blind, and failed loudly - which is the whole reason to prefer the
+loop that cannot hide a sign error. Both engines fixed; a test asserts the offset the sync names
+against the truth (`test_pilot_secondary_sync_and_pure_pll`).
+
+With the wipe right and the pure PLL on: Galileo lock 0.62 -> 0.91 (E21, the weak one),
+0.93 -> 0.99 (E29); the joint position unchanged (settled scatter 1.76 vs 1.78 m - it is code-
+and GPS-limited). And the **100 ms pilot window now locks** - once the narrow PLL's bandwidth is
+right for it: 15 Hz x 100 ms is a bandwidth-times-integration product of 1.5 (unstable; every
+satellite lost in a second), 3 Hz x 100 ms is 0.3 (locks 0.93-0.99, settled scatter 1.71 m).
+Both engines now cap the narrow bandwidth at 0.3 / window, so `--coherent-ms 100` works with the
+defaults (result identical to the hand-set 3 Hz to 0.04 m); the GPS default, 15 Hz x 20 ms, is
+exactly at the cap and is untouched.
+
 **Found on the way - the Qt live flowgraph overruns at 4.096 MS/s.** Two attempts at a live
 Galileo screenshot with the `gpsrx_radio_qt` flowgraph (spectrum display + Sky Panel) at
 4.096 MS/s printed `O` (SoapySDR overflow) bursts, and each burst took every channel down: the
