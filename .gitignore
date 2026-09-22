@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+build/
+runs/
+captures/
+*.cf32
+*.cs16
+*.iq
