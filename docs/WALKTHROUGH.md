@@ -67,6 +67,9 @@ on an exact sample so the run is deterministic).
 **Block:** `GPS Channel` (Python, `channel.py`, engine `track.py`) or `GPS Channel (C++)`
 (`lib/channel_cc_impl.cc`, the same arithmetic line for line; eight of them run at 15x real
 time on a PC, 13x on a Raspberry Pi 5 - the Python ones at 0.17x, which is why there are two).
+Both take a `signal`: GPS L1 C/A, or Galileo E1 (the same loops on a 4092-chip BOC code with
+quarter-chip spacing, the secondary code in place of bit sync, and a fourth correlator on E1-B
+for the data - `gale1.py` has what differs).
 **In:** the stream, `assign`. **Out:** the prompt correlation, one item per code period (a
 1 kHz stream whose sign is the data), `obs` once a second, `status`.
 
@@ -190,7 +193,9 @@ the same lane as gnss-sdr, 2-3 m apart; a live hour on an SDRplay RSPdx at rms 2
 
 ## 7. What it does not do (yet)
 
-One frequency. Galileo E1 is in - pilot-aided (`gale1.py`, `nav_gal.py`; needs 4 MS/s and Python
-channels so far), and a joint fix beats GPS-only on the same samples (1.8 m vs 3.8 m scatter, settled).
-100 ms pilot integration is the next step there. The FLL exists but buys nothing measurable (the 31 dB-Hz
-floor is the 1 ms first stage's lock threshold). No carrier-phase positioning, no RTK.
+One frequency. Galileo E1 is in - pilot-aided (`gale1.py`, `nav_gal.py`; needs 4 MS/s), in both
+Channel engines (the C++ one carries the code tables, so `--galileo 4` works live), and a joint fix
+beats GPS-only on the same samples (1.8 m vs 3.8 m scatter, settled; C++ and Python agree to
+0.07 m per fix). 100 ms pilot integration is the next step there. The FLL exists but buys nothing
+measurable (the 31 dB-Hz floor is the 1 ms first stage's lock threshold). No carrier-phase
+positioning, no RTK.

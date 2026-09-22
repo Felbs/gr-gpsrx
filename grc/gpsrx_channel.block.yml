@@ -36,8 +36,8 @@ parameters:
   label: Signal
   dtype: enum
   default: '''L1CA'''
-  options: ['''L1CA''', '''E1B''']
-  option_labels: [GPS L1 C/A, Galileo E1-B]
+  options: ['''L1CA''', '''E1''', '''E1B''']
+  option_labels: [GPS L1 C/A, Galileo E1 (pilot-aided), Galileo E1-B only]
 - {id: pll_bw, label: PLL bandwidth (Hz), dtype: real, default: '18.0'}
 - {id: dll_bw, label: DLL bandwidth (Hz), dtype: real, default: '2.0'}
 - {id: obs_every_ms, label: Observable every (periods), dtype: int, default: '1000', hide: part}

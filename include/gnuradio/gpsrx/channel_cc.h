@@ -9,6 +9,7 @@
 #define INCLUDED_GPSRX_CHANNEL_CC_H
 
 #include <gnuradio/block.h>
+#include <string>
 #include <gnuradio/gpsrx/api.h>
 
 namespace gr {
@@ -42,9 +43,12 @@ public:
      * \param dll_bw_narrow DLL bandwidth after bit sync
      * \param coherent_ms coherent integration after bit sync, a divisor of 20
      * \param pll_order 3 (follows a Doppler rate - a moving receiver - with no standing phase error) or 2
+     * \param signal "L1CA" (GPS), "E1B" (Galileo data channel alone) or "E1" (Galileo, pilot-aided:
+     *        the loops on E1-C, the data from E1-B; 4 ms periods, needs >= 4 MS/s)
      */
     static sptr make(double samp_rate, int slot, double pll_bw = 18.0, double dll_bw = 2.0, int obs_every_ms = 1000,
-                     double pll_bw_narrow = 15.0, double dll_bw_narrow = 0.5, int coherent_ms = 20, int pll_order = 3);
+                     double pll_bw_narrow = 15.0, double dll_bw_narrow = 0.5, int coherent_ms = 20, int pll_order = 3,
+                     const std::string& signal = "L1CA");
 };
 
 } // namespace gpsrx

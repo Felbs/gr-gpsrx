@@ -2,7 +2,15 @@
 
 2026-09-22 · pure NumPy engines; the Channel block under GNU Radio 3.10.12 (radioconda)
 
-## Tests (no capture, no radio): 14 engine tests + 4 flowgraph QA, all pass
+## Tests (no capture, no radio): 23 engine tests + 7 flowgraph QA, all pass
+
+(The table below is the original set; since then: `test_track.py` 7 - a Doppler-rate satellite
+with the third-order loop; `test_pvt.py` 8 - RAIM isolation, Hatch smoothing, the timing product to
+< 5 ns, a two-system solve recovering a 25 ns inter-system bias; `test_acquire.py` 2 - the LO
+offset search; `test_gal.py` 3 - Galileo codes and BOC autocorrelation, the I/NAV decoder on real
+PRN 29 symbols, a page round trip; `qa_channel_cc.py` 3 - the C++ Galileo E1 channel against the
+Python one on two synthetic Galileo satellites: identical epochs, same secondary-code sync, E1-B
+symbols out equal to the symbols that went in.)
 
 | file | proves |
 |---|---|
@@ -196,6 +204,26 @@ put the loop over unity gain).
 The joint solve, settled (last 35 of 90 s, all 11 satellites in): **scatter 1.7-1.8 m, rms 4.6 m -
 against GPS-only 3.8 m and 5.9 m** on the same samples. The whole-run scatter (7.6 m) is the transition
 while Galileo joins; the fix's mean is 2.7 m from GPS-only's.
+
+## The C++ Galileo channel (22 September, night)
+
+The C++ Channel took the same `signal` generalisation as the Python engine: a code vector of any
+length with an optional BOC(1,1) subcarrier and a settable spacing, an optional data code (a fourth
+correlator, whose prompt goes to the decoder), an optional known secondary code (sync by correlating
+the prompt's signs against it at every offset, then chip wipe-off), the coherent window in periods.
+The E1-B and E1-C tables are compiled in (`lib/galileo_e1_codes.h`, generated from the vendored
+table by `util/make_e1_codes_h.py`), so a GRC canvas or the live app runs Galileo with no Python
+channel. `channel_cc(..., signal="E1")`; the Receiver uses it for its Galileo slots whenever the
+engine is C++, which is what `apps/gpsrx_live.py --rate 4.096e6 --galileo 4` now does.
+
+The same 90 s of the wideband capture, 8 GPS + 4 Galileo slots, C++ against Python channels:
+**73 fixes each at identical instants, median position difference 0.07 m (max 1.68 m, during the
+handover), settled scatter 1.78 vs 1.81 m, settled means 0.08 m apart, GST-GPS -115 vs -114 ns**;
+E29 lock 0.97 at C/N0 45 dB-Hz, every page CRC-clean, all four with ephemerides. Wall time: 66 s
+for the 90 s of 4.096 MS/s samples including the search holds (the Python channels: 587 s).
+QA: two synthetic Galileo satellites (`synth.satellite(system="GAL")`: E1-B x symbols plus E1-C x
+the secondary code, half the power each) through both engines - identical epoch counts, Doppler
+within 2 Hz, code phase within 0.02 chip, the C++ symbol stream equal to the symbols that went in.
 
 ## Defects found by testing (all fixed)
 

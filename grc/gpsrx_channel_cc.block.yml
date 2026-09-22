@@ -7,12 +7,20 @@ documentation: 'The same Channel as GPS Channel, in C++: eight of them run at 15
 
   Python ones at 0.17x). Same ports, same tag, same messages, the same arithmetic line for
 
-  line - a Nav Decoder or PVT cannot tell which it is wired to. Use this one live.'
+  line - a Nav Decoder or PVT cannot tell which it is wired to. Use this one live.
+
+  GPS L1 C/A or Galileo E1 (pilot-aided; the code tables are built in; needs >= 4 MS/s).'
 templates: {imports: from gnuradio import gpsrx, make: 'gpsrx.channel_cc(${samp_rate}, ${slot}, ${pll_bw},
-    ${dll_bw}, ${obs_every_ms}, ${pll_bw_narrow}, ${dll_bw_narrow}, ${coherent_ms}, ${pll_order})'}
+    ${dll_bw}, ${obs_every_ms}, ${pll_bw_narrow}, ${dll_bw_narrow}, ${coherent_ms}, ${pll_order}, ${signal})'}
 parameters:
 - {id: samp_rate, label: Sample rate, dtype: real, default: samp_rate}
 - {id: slot, label: Slot, dtype: int, default: '0'}
+- id: signal
+  label: Signal
+  dtype: enum
+  default: '''L1CA'''
+  options: ['''L1CA''', '''E1''', '''E1B''']
+  option_labels: [GPS L1 C/A, Galileo E1 (pilot-aided), Galileo E1-B only]
 - {id: pll_bw, label: PLL bandwidth (Hz), dtype: real, default: '18.0'}
 - {id: dll_bw, label: DLL bandwidth (Hz), dtype: real, default: '2.0'}
 - {id: obs_every_ms, label: Observable every (ms), dtype: int, default: '1000', hide: part}

@@ -201,6 +201,7 @@ blocks:
     pll_bw: '18.0'
     dll_bw: '2.0'
     obs_every_ms: '1000'
+    signal: '''L1CA'''
     comment: 'slot 1: NCO, E/P/L, PLL, DLL; counts code epochs (C++)'
   states:
     bus_sink: false
@@ -266,6 +267,7 @@ blocks:
     pll_bw: '18.0'
     dll_bw: '2.0'
     obs_every_ms: '1000'
+    signal: '''L1CA'''
     comment: 'slot 3: NCO, E/P/L, PLL, DLL; counts code epochs (C++)'
   states:
     bus_sink: false
@@ -331,6 +333,7 @@ blocks:
     pll_bw: '18.0'
     dll_bw: '2.0'
     obs_every_ms: '1000'
+    signal: '''L1CA'''
     comment: 'slot 5: NCO, E/P/L, PLL, DLL; counts code epochs (C++)'
   states:
     bus_sink: false

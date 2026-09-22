@@ -11,6 +11,7 @@
 #include <cmath>
 
 #include "channel_cc_impl.h"
+#include "galileo_e1_codes.h"
 #include <gnuradio/io_signature.h>
 
 #include <algorithm>
@@ -56,33 +57,60 @@ static void loop_gains(double bw_hz, double k, double& t1, double& t2)
     t2 = 2 * zeta / wn;
 }
 
-static inline int chip_index(double phase_chips)
+inline double tracker::chip(const std::vector<int8_t>& c, double phase_chips) const
 {
-    const int i = (int)std::floor(phase_chips) % tracker::CODE_LEN;
-    return i < 0 ? i + tracker::CODE_LEN : i;
+    // nearest-chip lookup; with BOC(1,1) the chip is +1 in its first half and -1 in its second
+    const double fl = std::floor(phase_chips);
+    int i = (int)fl % code_len;
+    if (i < 0)
+        i += code_len;
+    double v = (double)c[i];
+    if (boc_ && (phase_chips - fl) >= 0.5)
+        v = -v;
+    return v;
 }
 
 tracker::tracker(int prn_, double fs_, double doppler_hz, double code_phase_samples, double pll_bw, double dll_bw,
-                 double pll_bw_narrow, double dll_bw_narrow, int coherent_ms, int pll_order)
+                 double pll_bw_narrow, double dll_bw_narrow, int coherent_ms, int pll_order, const signal* sig)
     : prn(prn_), fs(fs_), carrier_hz(doppler_hz), doppler0_(doppler_hz),
-      pll_bw_narrow_(pll_bw_narrow), dll_bw_narrow_(dll_bw_narrow), coh_(pll_bw_narrow > 0 ? coherent_ms : 1),
-      pll_order_(pll_order)
+      pll_bw_narrow_(pll_bw_narrow), dll_bw_narrow_(dll_bw_narrow), pll_order_(pll_order)
 {
-    ca_code(prn, code_);
+    if (sig && !sig->code.empty()) {
+        code_ = sig->code;
+        data_code_ = sig->data_code;
+        secondary_ = sig->secondary;
+        boc_ = sig->boc;
+        bit_periods_ = sig->bit_periods;
+        spacing_ = sig->spacing;
+        code_len = (int)code_.size();
+        sys = "GAL";
+    } else {
+        std::array<int8_t, CODE_LEN> ca;
+        ca_code(prn, ca);
+        code_.assign(ca.begin(), ca.end());
+        code_len = CODE_LEN;
+    }
+    // coherent_ms is MILLISECONDS; the window is counted in periods and must divide the bit /
+    // secondary-code length (track.py)
+    const double period_ms = 1e3 * code_len / CODE_RATE;
+    int cohp = std::max(1, std::min((int)std::lround(coherent_ms / period_ms), bit_periods_));
+    while (bit_periods_ % cohp)
+        cohp--;
+    coh_ = (pll_bw_narrow > 0 && bit_periods_ > 1) ? cohp : 1;
     // acquisition hands over the sample at which the code starts; the phase at sample 0 is
-    // therefore -(that) chips/sample, modulo 1023
+    // therefore -(that) chips/sample, modulo the code length
     const double cps = CODE_RATE / fs;
-    code_phase = std::fmod(-code_phase_samples * cps, (double)CODE_LEN);
+    code_phase = std::fmod(-code_phase_samples * cps, (double)code_len);
     if (code_phase < 0)
-        code_phase += CODE_LEN;
+        code_phase += code_len;
     loop_gains(pll_bw, 0.25, pll_t1_, pll_t2_); // atan/2pi is +-1/4 cycle full scale
     loop_gains(dll_bw, 1.0, dll_t1_, dll_t2_);
-    n_nominal_ = (int)std::lround(fs * CODE_LEN / CODE_RATE);
+    n_nominal_ = (int)std::lround(fs * code_len / CODE_RATE);
 }
 
 int tracker::samples_needed() const
 {
-    const double chips_left = CODE_LEN - code_phase;
+    const double chips_left = code_len - code_phase;
     const int n = (int)std::ceil(chips_left * fs / code_rate);
     return n < 1 ? 1 : n;
 }
@@ -94,28 +122,33 @@ std::complex<double> tracker::step(const std::complex<float>* x, int n)
     const double w = -2.0 * M_PI * carrier_hz / fs;
     std::complex<double> ph(std::cos(-carrier_phase), std::sin(-carrier_phase));
     const std::complex<double> stepc(std::cos(w), std::sin(w));
-    // 2. early / prompt / late replicas half a chip apart, nearest-chip lookup, accumulated
+    // 2. early / prompt / late replicas `spacing` chips apart, nearest-chip lookup, accumulated;
+    //    a pilot-aided signal adds a fourth correlator on the data code
     const double cps = code_rate / fs;
-    std::complex<double> E = 0, P = 0, L = 0;
+    const bool pilot = !data_code_.empty();
+    std::complex<double> E = 0, P = 0, L = 0, D = 0;
     double phc = code_phase;
     for (int k = 0; k < n; k++) {
         const std::complex<double> xb = std::complex<double>(x[k].real(), x[k].imag()) * ph;
         ph *= stepc;
-        E += xb * (double)code_[chip_index(phc + SPACING)];
-        P += xb * (double)code_[chip_index(phc)];
-        L += xb * (double)code_[chip_index(phc - SPACING)];
+        E += xb * chip(code_, phc + spacing_);
+        P += xb * chip(code_, phc);
+        L += xb * chip(code_, phc - spacing_);
+        if (pilot)
+            D += xb * chip(data_code_, phc);
         phc += cps;
     }
+    const std::complex<double> Pdata = pilot ? D : P;
     // advance phases by what this period consumed
     const double dt = n / fs;
     carrier_phase = std::fmod(carrier_phase + 2.0 * M_PI * carrier_hz * dt, 2.0 * M_PI);
     if (carrier_phase < 0)
         carrier_phase += 2.0 * M_PI;
     carrier_cycles += carrier_hz * dt;
-    code_phase = std::fmod(code_phase + n * cps, (double)CODE_LEN);
+    code_phase = std::fmod(code_phase + n * cps, (double)code_len);
     samples_in += n;
     epochs += 1;
-    const double ip = P.real(), qp = P.imag();
+    double ip = P.real(), qp = P.imag();
     // lock indicator (I^2 - Q^2) / (I^2 + Q^2), smoothed over ~50 periods
     const double p = ip * ip + qp * qp;
     const double li = p > 0 ? (ip * ip - qp * qp) / p : 0.0;
@@ -127,32 +160,41 @@ std::complex<double> tracker::step(const std::complex<float>* x, int n)
         const double m2 = m2_ / 20, m4 = m4_ / 20;
         const double pd = std::sqrt(std::max(2 * m2 * m2 - m4, 0.0)), pn = m2 - pd;
         if (pd > 0 && pn > 0) {
-            const double cn0 = 10 * std::log10(pd / pn / (CODE_LEN / CODE_RATE));
+            const double cn0 = 10 * std::log10(pd / pn / period_s());
             cn0_db = cn0_db == 0.0 ? cn0 : 0.9 * cn0_db + 0.1 * cn0;
         }
         m2_ = m4_ = 0.0;
         mn_ = 0;
     }
-    // stage 1: bit sync (where, mod 20, does the prompt's sign flip?) and the averaged frequency
+    // stage 1: bit sync (where, mod 20, does the prompt's sign flip? - or, for a pilot with a known
+    // secondary code, where in the sequence are we?) and the averaged loop state for the handover
     if (bit_offset < 0 && coh_ > 1) {
         f_avg_ = have_f_avg_ ? 0.99 * f_avg_ + 0.01 * carrier_hz : carrier_hz;
         have_f_avg_ = true;
         cd_avg_ = 0.99 * cd_avg_ + 0.01 * code_dop_;
-        bit_sync(ip);
+        if (!secondary_.empty())
+            secondary_sync(ip);
+        else
+            bit_sync(ip);
     }
     // stage 2: coherent window over a whole bit, one loop update per window (track.py)
     std::complex<double> Ew = E, Pw = P, Lw = L;
     double dt_loop = dt;
     if (bit_offset >= 0) {
+        if (!secondary_.empty()) { // wipe the known secondary chip off this period's pilot correlations
+            const int m = (int)secondary_.size();
+            const double c = sec_pol_ * (double)secondary_[(int)(((epochs - 1 - bit_offset) % m + m) % m)];
+            E *= c; P *= c; L *= c;
+        }
         const bool at_edge = ((epochs - bit_offset) % coh_ + coh_) % coh_ == 0;
         if (!aligned_) { // no loop update until the first bit edge (a partial window kicks the loop)
             aligned_ = at_edge;
-            return P;
+            return Pdata;
         }
         acc_[0] += E; acc_[1] += P; acc_[2] += L;
         acc_dt_ += dt;
         if (!at_edge)
-            return P;
+            return Pdata;
         Ew = acc_[0]; Pw = acc_[1]; Lw = acc_[2];
         dt_loop = acc_dt_;
         acc_[0] = acc_[1] = acc_[2] = 0;
@@ -177,60 +219,100 @@ std::complex<double> tracker::step(const std::complex<float>* x, int n)
     code_dop_ += (dll_t2_ * (e_dll - dll_e_prev) + dt_loop * e_dll) / dll_t1_;
     dll_e_prev = e_dll;
     code_rate = CODE_RATE + carrier_hz * CARRIER_TO_CODE + code_dop_;
-    return P;
+    return Pdata;
+}
+
+void tracker::switch_to_narrow()
+{
+    // k = 1 for the narrow stage (see track.py: with k = 0.25 the 20 ms loop is over unity gain)
+    loop_gains(pll_bw_narrow_, 1.0, pll_t1_, pll_t2_);
+    loop_gains(dll_bw_narrow_, 1.0, dll_t1_, dll_t2_);
+    pll_e_prev = dll_e_prev = 0.0;
+    acc_[0] = acc_[1] = acc_[2] = 0;
+    acc_dt_ = 0.0;
+    aligned_ = false;
+    if (have_f_avg_) { // start from the averaged frequency, not the jittering instantaneous one
+        carr_corr_ = f_avg_ - doppler0_;
+        carrier_hz = f_avg_;
+    }
+    if (pll_order_ == 3) {
+        w3_ = pll_bw_narrow_ / 0.7845;
+        acc3_ = 0.0;
+        vel3_ = have_f_avg_ ? f_avg_ - doppler0_ : carr_corr_;
+    }
+    code_dop_ = cd_avg_; // and the averaged code-rate correction (track.py)
+    code_rate = CODE_RATE + carrier_hz * CARRIER_TO_CODE + code_dop_;
+}
+
+void tracker::secondary_sync(double ip)
+{
+    // the prompt's signs over the last 100 periods against the known secondary code at every
+    // cyclic offset and both polarities; 90% agreement names the offset (track.py)
+    sec_hist_.push_back(ip > 0 ? 1 : (ip < 0 ? -1 : 0));
+    const int m = (int)secondary_.size();
+    const int N = 4 * m;
+    if ((int)sec_hist_.size() > N)
+        sec_hist_.erase(sec_hist_.begin(), sec_hist_.begin() + (sec_hist_.size() - N));
+    if ((int)sec_hist_.size() < N || epochs < 300 || lock <= 0.5)
+        return;
+    double best = 0.0;
+    int best_off = 0;
+    for (int off = 0; off < m; off++) {
+        double sc = 0.0;
+        for (int j = 0; j < N; j++) {
+            const int64_t k = epochs - N + j; // the epoch count this sign belongs to
+            sc += sec_hist_[j] * secondary_[(int)(((k - 1 - off) % m + m) % m)];
+        }
+        sc /= N;
+        if (std::fabs(sc) > std::fabs(best)) {
+            best = sc;
+            best_off = off;
+        }
+    }
+    if (std::fabs(best) >= 0.9) {
+        bit_offset = best_off;
+        sec_pol_ = best > 0 ? 1.0 : -1.0;
+        switch_to_narrow();
+    }
 }
 
 void tracker::bit_sync(double ip)
 {
     // this period's index is epochs - 1 (epochs already counts it)
     if (last_ip_ != 0.0 && (ip < 0) != (last_ip_ < 0) && lock > 0.5)
-        flips_[(epochs - 1) % 20]++;
+        flips_[(epochs - 1) % bit_periods_]++;
     last_ip_ = ip;
     if (epochs < 300 || lock <= 0.5)
         return;
     int64_t top = 0, second = 0, arg = 0;
-    for (int i = 0; i < 20; i++) {
+    for (int i = 0; i < bit_periods_; i++) {
         if (flips_[i] > top) { second = top; top = flips_[i]; arg = i; }
         else if (flips_[i] > second) second = flips_[i];
     }
     if (top >= 8 && top >= 3 * std::max<int64_t>(second, 1)) {
         bit_offset = (int)arg;
-        // k = 1 for the narrow stage (see track.py: with k = 0.25 the 20 ms loop is over unity gain)
-        loop_gains(pll_bw_narrow_, 1.0, pll_t1_, pll_t2_);
-        loop_gains(dll_bw_narrow_, 1.0, dll_t1_, dll_t2_);
-        pll_e_prev = dll_e_prev = 0.0;
-        acc_[0] = acc_[1] = acc_[2] = 0;
-        acc_dt_ = 0.0;
-        aligned_ = false;
-        if (have_f_avg_) { // start from the averaged frequency, not the jittering instantaneous one
-            carr_corr_ = f_avg_ - doppler0_;
-            carrier_hz = f_avg_;
-        }
-        if (pll_order_ == 3) {
-            w3_ = pll_bw_narrow_ / 0.7845;
-            acc3_ = 0.0;
-            vel3_ = have_f_avg_ ? f_avg_ - doppler0_ : carr_corr_;
-        }
-        code_dop_ = cd_avg_; // and the averaged code-rate correction (track.py)
-        code_rate = CODE_RATE + carrier_hz * CARRIER_TO_CODE + code_dop_;
+        switch_to_narrow();
     }
 }
 
 // ---- the block ------------------------------------------------------------------------------
 channel_cc::sptr channel_cc::make(double samp_rate, int slot, double pll_bw, double dll_bw, int obs_every_ms,
-                                  double pll_bw_narrow, double dll_bw_narrow, int coherent_ms, int pll_order)
+                                  double pll_bw_narrow, double dll_bw_narrow, int coherent_ms, int pll_order,
+                                  const std::string& signal)
 {
     return gnuradio::make_block_sptr<channel_cc_impl>(samp_rate, slot, pll_bw, dll_bw, obs_every_ms,
-                                                      pll_bw_narrow, dll_bw_narrow, coherent_ms, pll_order);
+                                                      pll_bw_narrow, dll_bw_narrow, coherent_ms, pll_order, signal);
 }
 
 channel_cc_impl::channel_cc_impl(double samp_rate, int slot, double pll_bw, double dll_bw, int obs_every_ms,
-                                 double pll_bw_narrow, double dll_bw_narrow, int coherent_ms, int pll_order)
+                                 double pll_bw_narrow, double dll_bw_narrow, int coherent_ms, int pll_order,
+                                 const std::string& signal)
     : gr::block("gpsrx_channel_cc",
                 gr::io_signature::make(1, 1, sizeof(gr_complex)),
                 gr::io_signature::make(1, 1, sizeof(gr_complex))),
       fs_(samp_rate),
       slot_(slot),
+      signal_(signal),
       pll_bw_(pll_bw),
       dll_bw_(dll_bw),
       pll_bw_narrow_(pll_bw_narrow),
@@ -240,6 +322,8 @@ channel_cc_impl::channel_cc_impl(double samp_rate, int slot, double pll_bw, doub
       obs_every_(obs_every_ms),
       batch_(3)
 {
+    // obs_every is milliseconds; a Galileo period is 4 ms
+    obs_periods_ = std::max(1, signal_ == "L1CA" ? obs_every_ : obs_every_ / 4);
     message_port_register_in(pmt::mp("assign"));
     set_msg_handler(pmt::mp("assign"), [this](pmt::pmt_t msg) { this->on_assign(msg); });
     message_port_register_out(pmt::mp("obs"));
@@ -250,6 +334,19 @@ channel_cc_impl::channel_cc_impl(double samp_rate, int slot, double pll_bw, doub
 }
 
 channel_cc_impl::~channel_cc_impl() {}
+
+// the E1 primary code from its hex string (galileo_e1_codes.h): 4 chips per character, bit 1 = -1
+static std::vector<int8_t> e1_code(const char* hex)
+{
+    std::vector<int8_t> out;
+    out.reserve(4092);
+    for (const char* c = hex; *c; c++) {
+        const int v = (*c >= 'A') ? *c - 'A' + 10 : *c - '0';
+        for (int b = 3; b >= 0; b--)
+            out.push_back((v >> b) & 1 ? -1 : 1);
+    }
+    return out;
+}
 
 static double num(pmt::pmt_t d, const char* key, double dflt)
 {
@@ -291,6 +388,7 @@ void channel_cc_impl::publish_status(const char* what, pmt::pmt_t extra)
     d = pmt::dict_add(d, pmt::mp("slot"), pmt::from_long(slot_));
     d = pmt::dict_add(d, pmt::mp("prn"), pmt::from_long(prn_));
     d = pmt::dict_add(d, pmt::mp("what"), pmt::string_to_symbol(what));
+    d = pmt::dict_add(d, pmt::mp("system"), pmt::string_to_symbol(signal_ == "L1CA" ? "GPS" : "GAL"));
     if (pmt::is_dict(extra)) {
         pmt::pmt_t items = pmt::dict_items(extra);
         while (pmt::is_pair(items)) {
@@ -333,17 +431,45 @@ int channel_cc_impl::general_work(int noutput_items,
         }
         // acquisition's code start is `sample` absolute, seconds old by now: wrap it forward
         // with the DOPPLER-SHIFTED code period (nominal would be 3 chips/s wrong at 5 kHz)
-        const double period = fs_ * tracker::CODE_LEN / (tracker::CODE_RATE * (1.0 + pend_dop_ / tracker::L1_HZ));
+        const double period = fs_ * (signal_ == "L1CA" ? tracker::CODE_LEN : 4092) / (tracker::CODE_RATE * (1.0 + pend_dop_ / tracker::L1_HZ));
         double rel = std::fmod(pend_sample_ - (double)start, period);
         if (rel < 0)
             rel += period;
-        eng_.reset(new tracker(pend_prn_, fs_, pend_dop_, rel, pll_bw_, dll_bw_, pll_bw_narrow_, dll_bw_narrow_, coherent_ms_, pll_order_));
+        const tracker::signal* sigp = nullptr;
+        if (signal_ != "L1CA") {
+            const int i = pend_prn_ - 1;
+            if (i < 0 || i >= 36) {
+                publish_status("idle");   // no such Galileo PRN
+                prn_ = 0;
+                have_pending_ = false;
+                consume(0, n_in);
+                return 0;
+            }
+            sig_ = tracker::signal();
+            sig_.name = signal_;
+            sig_.boc = true;
+            sig_.spacing = 0.25;
+            if (signal_ == "E1") {         // pilot-aided: loops on E1-C, data from E1-B
+                sig_.code = e1_code(GALILEO_E1C_HEX[i]);
+                sig_.data_code = e1_code(GALILEO_E1B_HEX[i]);
+                static const char* CS25 = "0011100000001010110110010";
+                for (const char* c = CS25; *c; c++)
+                    sig_.secondary.push_back(*c == '1' ? -1 : 1);
+                sig_.bit_periods = 25;
+            } else {                         // E1B: data channel alone, one symbol per period
+                sig_.code = e1_code(GALILEO_E1B_HEX[i]);
+                sig_.bit_periods = 1;
+            }
+            sigp = &sig_;
+        }
+        eng_.reset(new tracker(pend_prn_, fs_, pend_dop_, rel, pll_bw_, dll_bw_, pll_bw_narrow_, dll_bw_narrow_, coherent_ms_, pll_order_, sigp));
         t0_abs_ = start;
         lost_run_ = 0;
         have_pending_ = false;
         pmt::pmt_t tag = pmt::make_dict();
         tag = pmt::dict_add(tag, pmt::mp("prn"), pmt::from_long(pend_prn_));
         tag = pmt::dict_add(tag, pmt::mp("slot"), pmt::from_long(slot_));
+        tag = pmt::dict_add(tag, pmt::mp("system"), pmt::string_to_symbol(signal_ == "L1CA" ? "GPS" : "GAL"));
         add_item_tag(0, nitems_written(0), pmt::mp("gpsrx_assign"), tag);
         pmt::pmt_t ex = pmt::make_dict();
         ex = pmt::dict_add(ex, pmt::mp("doppler_hz"), pmt::from_double(pend_dop_));
@@ -368,7 +494,7 @@ int channel_cc_impl::general_work(int noutput_items,
             lost_run_++;
         else
             lost_run_ = 0;
-        if (n_periods_ % obs_every_ == 0) {
+        if (n_periods_ % obs_periods_ == 0) {
             pmt::pmt_t d = pmt::make_dict();
             d = pmt::dict_add(d, pmt::mp("prn"), pmt::from_long(eng_->prn));
             d = pmt::dict_add(d, pmt::mp("epochs"), pmt::from_long((long)eng_->epochs));
@@ -381,6 +507,8 @@ int channel_cc_impl::general_work(int noutput_items,
             d = pmt::dict_add(d, pmt::mp("carrier_cycles"), pmt::from_double(eng_->epoch_cycles()));
             d = pmt::dict_add(d, pmt::mp("sample_abs"), pmt::from_long((long)(t0_abs_ + eng_->samples_in)));
             d = pmt::dict_add(d, pmt::mp("slot"), pmt::from_long(slot_));
+            d = pmt::dict_add(d, pmt::mp("period_s"), pmt::from_double(eng_->period_s()));
+            d = pmt::dict_add(d, pmt::mp("sys"), pmt::string_to_symbol(eng_->sys));
             message_port_pub(pmt::mp("obs"), d);
         }
         if (lost_run_ >= LOST_PERIODS) {

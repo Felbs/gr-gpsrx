@@ -44,7 +44,7 @@ def main():
     ap.add_argument("--settings", action="append", default=[], metavar="KEY=VALUE", help="device-level settings")
     ap.add_argument("--seconds", type=float, default=600.0)
     ap.add_argument("--channels", type=int, default=8)
-    ap.add_argument("--galileo", type=int, default=0, help="Galileo E1-B channels (Python; needs >= 4 MS/s)")
+    ap.add_argument("--galileo", type=int, default=0, help="Galileo E1 (pilot-aided) channels; needs --rate 4.096e6")
     ap.add_argument("--interval", type=float, default=20.0)
     ap.add_argument("--fix-file", default=os.path.join(HERE, "..", "lab_local", "live.json"))
     ap.add_argument("--eph-file", default=os.path.join(HERE, "..", "lab_local", "eph_live.json"))
@@ -62,7 +62,7 @@ def main():
         tb = gr.top_block()
         src = soapy.source(f"driver={a.driver}" + (f",{a.dev_args}" if a.dev_args else ""), "fc32", 1, "", "", [""], [""])
         src.set_sample_rate(0, a.rate)
-        src.set_bandwidth(0, 2.5e6)
+        src.set_bandwidth(0, 2.5e6 if a.rate <= 2.5e6 else a.rate)   # BOC main lobes sit at +-1.023 MHz
         if a.antenna:
             src.set_antenna(0, a.antenna)
         src.set_frequency(0, 1575.42e6)

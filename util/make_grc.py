@@ -79,7 +79,7 @@ def build_canvas(n=6):
     for s in range(n):
         yy = y + 120 * s
         b.append(blk(f"ch{s}", "gpsrx_channel_cc" if s % 2 else "gpsrx_channel", 720, yy, samp_rate="samp_rate", slot=s,
-                     pll_bw=18.0, dll_bw=2.0, obs_every_ms=1000, **({} if s % 2 else {"signal": "'L1CA'"}),
+                     pll_bw=18.0, dll_bw=2.0, obs_every_ms=1000, signal="'L1CA'",
                      comment=f"slot {s}: NCO, E/P/L, PLL, DLL; counts code epochs" + (" (C++)" if s % 2 else " (Python)")))
         b.append(blk(f"nav{s}", "gpsrx_nav_decoder", 1020, yy, slot=s, comment="bits -> words -> subframes -> anchor"))
         c += [["to_c", "0", f"ch{s}", "0"], ["acq", "assign", f"ch{s}", "assign"], [f"ch{s}", "status", "acq", "status"],

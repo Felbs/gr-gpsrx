@@ -45,8 +45,8 @@ class receiver(gr.hier_block2):
             self.message_port_register_hier_out(port)
         self.acq = acquisition(samp_rate, n_slots=n_channels, interval_s=interval_s, threshold=threshold,
                                n_noncoh=n_noncoh, hold=hold, lo_search_hz=lo_search_hz)
-        # Galileo E1-B: its own Acquisition (4 ms BOC replicas) owning the slots after the GPS ones,
-        # Python channels (the C++ twin is L1 C/A only, so far), the same Nav Decoder block
+        # Galileo E1: its own Acquisition (4 ms BOC replicas) owning the slots after the GPS ones,
+        # pilot-aided channels (C++ or Python, like the GPS ones), the same Nav Decoder block
         self.acq_gal = None
         if n_galileo:
             self.acq_gal = acquisition(samp_rate, n_slots=n_galileo, interval_s=interval_s, threshold=threshold,
@@ -62,9 +62,10 @@ class receiver(gr.hier_block2):
         for s in range(int(n_channels) + int(n_galileo)):
             gal = s >= int(n_channels)
             acq = self.acq_gal if gal else self.acq
-            if engine == "cpp" and not gal:
-                ch = channel_cc(float(samp_rate), s, float(pll_bw), float(dll_bw), 1000,
-                                float(pll_bw_narrow), float(dll_bw_narrow), int(coherent_ms), int(pll_order))
+            if engine == "cpp":
+                ch = channel_cc(float(samp_rate), s, float(pll_bw) if not gal else 12.0, float(dll_bw) if not gal else 1.0, 1000,
+                                float(pll_bw_narrow), float(dll_bw_narrow), int(coherent_ms), int(pll_order),
+                                "E1" if gal else "L1CA")
             else:
                 ch = channel(samp_rate, slot=s, pll_bw=pll_bw if not gal else 12.0, dll_bw=dll_bw if not gal else 1.0,
                              pll_bw_narrow=pll_bw_narrow, dll_bw_narrow=dll_bw_narrow, coherent_ms=coherent_ms,

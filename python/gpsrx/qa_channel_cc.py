@@ -41,10 +41,11 @@ class msg_sink(gr.basic_block):
         self.got.append(pmt.to_python(m))
 
 
-def run_channels(make, secs, birds, obs_every=200):
-    x, truths = synth.sky(FS, secs, birds)
+def run_channels(make, secs, birds, obs_every=200, fs=FS):
+    x, truths = synth.sky(fs, secs, birds)
     tb = gr.top_block()
     src = blocks.vector_source_c(x.tolist(), False)
+    src.set_min_output_buffer(int(16 * fs * 4e-3))     # whole code periods per work() call (4 ms Galileo)
     chans, sinks, obs, stat = [], [], [], []
     for i, b in enumerate(birds):
         ch = make(i, obs_every)
@@ -102,6 +103,40 @@ class qa_channel_cc(gr_unittest.TestCase):
         rate = secs / wall
         print(f"GATE 1 (C++): 8 channels x {secs:.0f} s in the GNU Radio scheduler: {wall:.2f} s wall = {rate:.1f}x real time")
         self.assertGreater(rate, 1.0)
+
+    def test_003_cpp_galileo_matches_python(self):
+        # two synthetic Galileo E1 satellites at 4.096 MS/s, pilot-aided in both engines: the same
+        # secondary-code sync, the same observables, the same E1-B symbols out
+        fs, secs = 4.096e6, 4.0
+        birds = [dict(prn=p, doppler_hz=d, code_phase_samples=c, cn0_dbhz=45.0, system="GAL")
+                 for p, d, c in zip((11, 29), (-1810.0, 2345.5), (900, 4000))]
+
+        def make_cc(i, e):
+            return gpsrx.channel_cc(fs, i, 12.0, 1.0, e, 15.0, 0.5, 20, 3, "E1")
+        _, out_py, obs_py, st_py, truths = run_channels(
+            lambda i, e: gpsrx.channel(fs, slot=i, pll_bw=12.0, dll_bw=1.0, obs_every_ms=e // 4, signal="E1"), secs, birds, fs=fs)
+        _, out_cc, obs_cc, st_cc, _ = run_channels(make_cc, secs, birds, fs=fs)
+        for i in range(len(birds)):
+            self.assertEqual([d["what"] for d in st_py[i]], [d["what"] for d in st_cc[i]])
+            self.assertEqual(st_cc[i][0]["system"], "GAL")
+            self.assertEqual(len(obs_py[i]), len(obs_cc[i]))
+            for a, b in zip(obs_py[i], obs_cc[i]):
+                self.assertEqual(a["epochs"], b["epochs"])
+                self.assertEqual(b["sys"], "GAL")
+                self.assertAlmostEqual(b["period_s"], 4e-3)
+                self.assertLess(abs(a["carrier_hz"] - b["carrier_hz"]), 2.0, (a, b))
+                self.assertLess(abs(a["code_phase"] - b["code_phase"]), 0.02, (a, b))
+                self.assertLess(abs(a["epoch_sample"] - b["epoch_sample"]), 0.1, (a, b))
+            self.assertGreater(obs_cc[i][-1]["lock"], 0.85, obs_cc[i][-1])
+            # both found the secondary code (the narrow stage) and both hand the decoder E1-B's symbols
+            n = min(len(out_py[i]), len(out_cc[i]))
+            p, c = np.array(out_py[i][400:n]), np.array(out_cc[i][400:n])
+            self.assertGreater(np.mean(np.sign(p.real) == np.sign(c.real)), 0.99)
+            # the symbols that went in, one per period (the channel's first prompt is the partial
+            # period before the code start, so the stream may run one period behind the truth)
+            bits = truths[i]["bits"]
+            agree = max(abs(np.mean(np.sign(c.real) == bits[400 - lag:n - lag]) - 0.5) + 0.5 for lag in (0, 1))
+            self.assertGreater(agree, 0.98, agree)
 
 
 if __name__ == "__main__":

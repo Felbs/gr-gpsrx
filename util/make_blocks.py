@@ -61,7 +61,7 @@ Idle until 'assign' names its slot (from the Acquisition block). 'status' says t
 lost / idle. Slot: this channel's number; Acquisition assigns by it.""",
          make="gpsrx.channel(samp_rate=${samp_rate}, slot=${slot}, pll_bw=${pll_bw}, dll_bw=${dll_bw}, "
               "obs_every_ms=${obs_every_ms}, pll_bw_narrow=${pll_bw_narrow}, dll_bw_narrow=${dll_bw_narrow}, coherent_ms=${coherent_ms}, pll_order=${pll_order}, signal=${signal})",
-         params=[RATE, SLOT, {"id": "signal", "label": "Signal", "dtype": "enum", "default": "'L1CA'", "options": ["'L1CA'", "'E1B'"], "option_labels": ["GPS L1 C/A", "Galileo E1-B"]},
+         params=[RATE, SLOT, {"id": "signal", "label": "Signal", "dtype": "enum", "default": "'L1CA'", "options": ["'L1CA'", "'E1'", "'E1B'"], "option_labels": ["GPS L1 C/A", "Galileo E1 (pilot-aided)", "Galileo E1-B only"]},
                  {"id": "pll_bw", "label": "PLL bandwidth (Hz)", "dtype": "real", "default": "18.0"},
                  {"id": "dll_bw", "label": "DLL bandwidth (Hz)", "dtype": "real", "default": "2.0"},
                  {"id": "obs_every_ms", "label": "Observable every (periods)", "dtype": "int", "default": "1000", "hide": "part"},
@@ -74,9 +74,11 @@ lost / idle. Slot: this channel's number; Acquisition assigns by it.""",
                   {"domain": "message", "id": "status", "optional": True}]),
     dict(id="gpsrx_channel_cc", label="GPS Channel (C++)", doc="""The same Channel as GPS Channel, in C++: eight of them run at 15x real time (measured; the
 Python ones at 0.17x). Same ports, same tag, same messages, the same arithmetic line for
-line - a Nav Decoder or PVT cannot tell which it is wired to. Use this one live.""",
-         make="gpsrx.channel_cc(${samp_rate}, ${slot}, ${pll_bw}, ${dll_bw}, ${obs_every_ms}, ${pll_bw_narrow}, ${dll_bw_narrow}, ${coherent_ms}, ${pll_order})",
-         params=[RATE, SLOT, {"id": "pll_bw", "label": "PLL bandwidth (Hz)", "dtype": "real", "default": "18.0"},
+line - a Nav Decoder or PVT cannot tell which it is wired to. Use this one live.
+GPS L1 C/A or Galileo E1 (pilot-aided; the code tables are built in; needs >= 4 MS/s).""",
+         make="gpsrx.channel_cc(${samp_rate}, ${slot}, ${pll_bw}, ${dll_bw}, ${obs_every_ms}, ${pll_bw_narrow}, ${dll_bw_narrow}, ${coherent_ms}, ${pll_order}, ${signal})",
+         params=[RATE, SLOT, {"id": "signal", "label": "Signal", "dtype": "enum", "default": "'L1CA'", "options": ["'L1CA'", "'E1'", "'E1B'"], "option_labels": ["GPS L1 C/A", "Galileo E1 (pilot-aided)", "Galileo E1-B only"]},
+                 {"id": "pll_bw", "label": "PLL bandwidth (Hz)", "dtype": "real", "default": "18.0"},
                  {"id": "dll_bw", "label": "DLL bandwidth (Hz)", "dtype": "real", "default": "2.0"},
                  {"id": "obs_every_ms", "label": "Observable every (ms)", "dtype": "int", "default": "1000", "hide": "part"},
                  {"id": "pll_bw_narrow", "label": "PLL bandwidth after bit sync (Hz)", "dtype": "real", "default": "15.0"},

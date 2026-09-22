@@ -8,6 +8,14 @@
 > lives inside the Acquisition block (no separate Channel Bank block; the Receiver hier block
 > plays that role), and the observable carries the epoch's fractional arrival sample rather
 > than a whole-sample boundary plus code phase.
+>
+> **Later the same day:** gate 4 (live) passed - an hour on an RSPdx at 99.8% valid fixes; the
+> C++ Channel, two-stage tracking with a third-order narrow PLL, Hatch smoothing, RAIM, a
+> Kalman PVT, warm start, deterministic replay, the timing product, and **Galileo E1** (the
+> "later" below): the Channel engine takes a signal description (code, BOC subcarrier, period,
+> spacing, secondary code), the same block tracks E1-C pilot-aided with a fourth correlator on
+> E1-B for the I/NAV decoder, in Python and in C++ (the code tables are vendored into both),
+> and the solver carries an inter-system clock unknown. TEST_REPORT.md has every number.
 
 Status: built (see the note above). Public: https://github.com/Felbs/gr-gpsrx
 
