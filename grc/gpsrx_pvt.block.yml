@@ -17,7 +17,9 @@ documentation: 'Every Channel''s ''obs'' and every Nav Decoder''s ''nav'' in; th
 
   (keep it out of any repository). Iono file: an archived broadcast to use until a channel
 
-  decodes page 18.'
+  decodes page 18. Connect every Channel''s ''status'' too: a lost channel''s last
+
+  observable is dropped, and any observable more than 2.5 s older than the newest is ignored.'
 templates: {imports: from gnuradio import gpsrx, make: 'gpsrx.pvt_solver(samp_rate=${samp_rate}, average=${average},
     iono_file=${iono_file}, fix_file=${fix_file})'}
 parameters:
@@ -28,6 +30,7 @@ parameters:
 inputs:
 - {domain: message, id: obs}
 - {domain: message, id: nav}
+- {domain: message, id: status, optional: true}
 outputs:
 - {domain: message, id: fix}
 file_format: 1

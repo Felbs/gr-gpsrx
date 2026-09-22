@@ -42,8 +42,14 @@ class pvt_solver(gr.basic_block):
         self.min_interval = float(min_interval_s)
         self.message_port_register_in(pmt.intern("obs"))
         self.message_port_register_in(pmt.intern("nav"))
+        self.message_port_register_in(pmt.intern("status"))
         self.set_msg_handler(pmt.intern("obs"), self.on_obs)
         self.set_msg_handler(pmt.intern("nav"), self.on_nav)
+        self.set_msg_handler(pmt.intern("status"), self.on_status)
+        # an observable older than this (stream time) than the newest is a dead channel's:
+        # a lost satellite's last report poisoned every later fix on a field capture
+        # (rms 3 m -> 50 m after one of seven channels dropped, measured 9/22)
+        self.max_age_s = 2.5
         self.message_port_register_out(pmt.intern("fix"))
         self._lock = threading.Lock()
         self.obs = {}                       # slot -> latest observable (with prn)
@@ -53,6 +59,7 @@ class pvt_solver(gr.basic_block):
             d = json.load(open(iono_file))
             self.iono, self.iono_src = {"a": d["iono_a"], "b": d["iono_b"]}, "archived"
         self.fixes = []
+        self.history = []
         self.n_fixes = 0
         self._last = 0.0
 
@@ -69,6 +76,12 @@ class pvt_solver(gr.basic_block):
             if "iono" in d:
                 self.iono, self.iono_src = {"a": list(d["iono"]["a"]), "b": list(d["iono"]["b"])}, "decoded"
 
+    def on_status(self, msg):
+        d = pmt.to_python(msg)
+        if isinstance(d, dict) and "slot" in d and d.get("what") in ("lost", "idle"):
+            with self._lock:
+                self.obs.pop(int(d["slot"]), None)          # its last observable is not a measurement any more
+
     def on_obs(self, msg):
         d = pmt.to_python(msg)
         if not isinstance(d, dict) or "slot" not in d:
@@ -80,8 +93,11 @@ class pvt_solver(gr.basic_block):
             now = float(d.get("epoch_sample", 0.0)) / self.fs
             if now - self._last < self.min_interval:
                 return
+            newest = max(float(o.get("epoch_sample", 0.0)) for o in self.obs.values())
             chans = []
             for slot, o in self.obs.items():
+                if newest - float(o.get("epoch_sample", 0.0)) > self.max_age_s * self.fs:
+                    continue
                 ent = self.nav.get((slot, int(o["prn"])))
                 if ent and "eph" in ent and "anchor" in ent:
                     chans.append(dict(prn=int(o["prn"]), eph=ent["eph"], anchor=ent["anchor"], obs=o))
@@ -114,6 +130,11 @@ class pvt_solver(gr.basic_block):
                 out["scatter_m"] = float(np.sqrt(np.mean(np.sum((P - mean) ** 2, axis=1))))
             self.message_port_pub(pmt.intern("fix"), pmt.to_pmt(out))
             if self.fix_file:
+                # the latest fix, plus every fix so far (quality and ECEF): a run's history is
+                # what tells a good stretch from a bad one afterwards
+                self.history.append(dict(count=self.n_fixes, n=fx["n"], prns=fx["prns"], rms_m=fx["rms_m"],
+                                         pdop=fx["pdop"], ecef=fx["ecef"], t_stream_s=fx["epoch_sample"] / self.fs,
+                                         altitude_plausible=fx["altitude_plausible"]))
                 os.makedirs(os.path.dirname(os.path.abspath(self.fix_file)), exist_ok=True)
                 with open(self.fix_file, "w") as fh:
-                    json.dump(out, fh, indent=1)
+                    json.dump(dict(out, history=self.history), fh, indent=1)

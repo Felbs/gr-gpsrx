@@ -83,6 +83,7 @@ def build_canvas(n=6):
         b.append(blk(f"nav{s}", "gpsrx_nav_decoder", 1020, yy, slot=s, comment="bits -> words -> subframes -> anchor"))
         c += [["to_c", "0", f"ch{s}", "0"], ["acq", "assign", f"ch{s}", "assign"], [f"ch{s}", "status", "acq", "status"],
               [f"ch{s}", "0", f"nav{s}", "0"], [f"ch{s}", "obs", "pvt", "obs"], [f"nav{s}", "nav", "pvt", "nav"],
+              [f"ch{s}", "status", "pvt", "status"],
               [f"ch{s}", "status", "status", "status"], [f"ch{s}", "obs", "status", "obs"], [f"nav{s}", "nav", "status", "nav"]]
     return {"options": options("gpsrx_canvas", "GPS receiver, block by block",
                                "Acquisition -> Channels -> Nav Decoders -> PVT -> Status, every wire visible."),

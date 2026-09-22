@@ -388,6 +388,10 @@ connections:
   - nav
 - - ch0
   - status
+  - pvt
+  - status
+- - ch0
+  - status
   - status
   - status
 - - ch0
@@ -422,6 +426,10 @@ connections:
   - nav
   - pvt
   - nav
+- - ch1
+  - status
+  - pvt
+  - status
 - - ch1
   - status
   - status
@@ -460,6 +468,10 @@ connections:
   - nav
 - - ch2
   - status
+  - pvt
+  - status
+- - ch2
+  - status
   - status
   - status
 - - ch2
@@ -494,6 +506,10 @@ connections:
   - nav
   - pvt
   - nav
+- - ch3
+  - status
+  - pvt
+  - status
 - - ch3
   - status
   - status
@@ -532,6 +548,10 @@ connections:
   - nav
 - - ch4
   - status
+  - pvt
+  - status
+- - ch4
+  - status
   - status
   - status
 - - ch4
@@ -566,6 +586,10 @@ connections:
   - nav
   - pvt
   - nav
+- - ch5
+  - status
+  - pvt
+  - status
 - - ch5
   - status
   - status

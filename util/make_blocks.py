@@ -85,12 +85,14 @@ referred to one receive sample; SV clock, Sagnac, troposphere and ionosphere; le
 The 'fix' message carries n, prns, rms_m, pdop, altitude_plausible, ecef, llh and a running
 mean/scatter over the last Average fixes. Fix file: optional path to keep the latest fix
 (keep it out of any repository). Iono file: an archived broadcast to use until a channel
-decodes page 18.""",
+decodes page 18. Connect every Channel's 'status' too: a lost channel's last
+observable is dropped, and any observable more than 2.5 s older than the newest is ignored.""",
          make="gpsrx.pvt_solver(samp_rate=${samp_rate}, average=${average}, iono_file=${iono_file}, fix_file=${fix_file})",
          params=[RATE, {"id": "average", "label": "Average fixes", "dtype": "int", "default": "15"},
                  {"id": "iono_file", "label": "Iono file", "dtype": "file_open", "default": "''"},
                  {"id": "fix_file", "label": "Fix file", "dtype": "file_save", "default": "''"}],
-         inputs=[{"domain": "message", "id": "obs"}, {"domain": "message", "id": "nav"}],
+         inputs=[{"domain": "message", "id": "obs"}, {"domain": "message", "id": "nav"},
+                 {"domain": "message", "id": "status", "optional": True}],
          outputs=[{"domain": "message", "id": "fix"}]),
     dict(id="gpsrx_status", label="GPS Status", doc="""\
 The receiver's state as text, one table every Every seconds: satellites per slot, lock,

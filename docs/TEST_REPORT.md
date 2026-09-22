@@ -70,6 +70,30 @@ pseudoranges carried a systematic error would land somewhere else with a differe
 Two skies agreeing to 7 m says the error is small. numpy-gps's two fixes on the earlier
 captures differ from each other by 102 m. The owner's known coordinates remain the final word.
 
+## The 150 m question, answered - and numpy-gps fixed
+
+The owner confirmed gr-gpsrx's position. Comparing numpy-gps's cached per-satellite code phases
+with this receiver's tracking channels at the same instant of the same capture: every satellite's
+range was off by -0.15 s x its range rate (-114 m at +4.5 kHz of Doppler, +20 m at -1 kHz; slope
+0.93 to that prediction, 6.8 m residual). numpy-gps measures the code phase from a 300 ms
+non-coherent snapshot, through which the code drifts up to a chip, so the summed peak sits at the
+phase of the window's CENTRE while the transmit time was evaluated at its START. One line
+(attribute the phase to the centre) and numpy-gps lands **1.7 m** from this receiver's live fix
+(was 152 m); residual rms 12 -> 6.6 m. Its 26 m scatter against this receiver's 10 m is the
+snapshot-versus-tracking-loop difference, not a defect.
+
+The same fix on a waterside field capture from two weeks earlier (five satellites low in the sky,
+PDOP 3-4): numpy-gps moved from 68 m to **13.5 m** from this receiver's mean of 229 fixes, its
+residual rms 41 -> 5 m, and the "creek bias" in its height (-58 m; sea level is about -33 m on
+the ellipsoid there) was the same bug. This receiver: median rms 3.3 m, scatter 27 m at that site.
+A 90 s capture from the next day gives no fix in either receiver (never four satellites with
+ephemeris and timing at once).
+
+That field capture found a defect here too: a channel that lost its satellite at 134 s kept its
+last observable in the solver, and every later fix carried it (rms 3 -> 50 m). PVT now drops a
+channel's observable on 'lost'/'idle' and ignores any observable more than 2.5 s older than the
+newest; the fix file keeps every fix's quality and ECEF as a history.
+
 ## Defects found by testing (all fixed)
 
 1. Costas discriminator written as `atan2(Q, I)`: a 180-degree data flip read as a 165-degree phase error, the carrier slewed 100 Hz, every bit transition glitched. Must be `atan(Q/I)`. (Two hours.)
@@ -88,3 +112,4 @@ captures differ from each other by 102 m. The owner's known coordinates remain t
 14. PVT throttled on the wall clock: one fix per wall second, five per second of capture at 5x replay. The receiver's clock is the sample counter; throttle on that.
 15. gr-soapy's per-channel `settings` cannot carry SDRplay's bias-T (`biasT_ctrl` is a device-level setting): `ValueError: Unsupported setting`. Applied with the block's device-level `write_setting`.
 16. The extension module copied beside the package made plain CPython's `import gpsrx` raise `ImportError` (GNU Radio's DLLs not loadable there), which the `ModuleNotFoundError` guard let through. Guard on `ImportError`.
+17. A lost channel's last observable stayed in the solver (above).

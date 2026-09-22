@@ -57,6 +57,7 @@ class receiver(gr.hier_block2):
             self.msg_connect(self.acq, "assign", ch, "assign")
             self.msg_connect(ch, "status", self.acq, "status")
             self.msg_connect(ch, "obs", self.pvt, "obs")
+            self.msg_connect(ch, "status", self.pvt, "status")
             self.msg_connect(dec, "nav", self.pvt, "nav")
             self.msg_connect(ch, "status", self, "status")
             self.msg_connect(ch, "obs", self, "obs")
