@@ -86,6 +86,8 @@ class pvt_solver(gr.basic_block):
         self.n_fixes = 0
         self._last = -1.0
         self._pending = None
+        # the timing product: (sample, GPS time) pairs from recent fixes -> clock drift, next PPS
+        self._time_hist = []
 
     def on_nav(self, msg):
         d = pmt.to_python(msg)
@@ -115,6 +117,32 @@ class pvt_solver(gr.basic_block):
                     self.n_borrowed += 1
             if "iono" in d:
                 self.iono, self.iono_src = {"a": list(d["iono"]["a"]), "b": list(d["iono"]["b"])}, "decoded"
+
+    def _timing(self, fx):
+        """GPS time at the fix's receive sample, the sample clock's drift, and the sample index of the
+        next whole GPS second - a 1PPS on the sample clock. The solve's t_rx already has the receiver
+        clock bias taken out, so sample s_ref IS GPS time t_rx to the solve's precision (a few ns for
+        a metre-level fix). Drift from a straight-line fit of (sample/fs - t_rx) over the last 30 s."""
+        s_ref, t_rx = float(fx["epoch_sample"]), float(fx["t_rx"])
+        wn = None
+        for key, ent in self.nav.items():
+            if "eph" in ent and "WN" in ent["eph"]:
+                wn = int(ent["eph"]["WN"])
+                break
+        self._time_hist.append((s_ref, t_rx))
+        self._time_hist = [p for p in self._time_hist if s_ref - p[0] < 30.0 * self.fs]
+        drift_ppb = None
+        if len(self._time_hist) >= 5:
+            S = np.array([p[0] for p in self._time_hist]) / self.fs
+            Tg = np.array([p[1] for p in self._time_hist])
+            # (sample time - GPS time) grows at the clock's rate error; unwrap any week roll first
+            off = S - S[0] - (Tg - Tg[0])
+            drift_ppb = float(np.polyfit(S - S[0], off, 1)[0] * 1e9)
+        rate = 1.0 + (drift_ppb or 0.0) * 1e-9              # sample-clock seconds per GPS second
+        next_sec = np.ceil(t_rx + 1e-9)
+        return dict(gps_tow=t_rx, gps_week_mod1024=wn, clock_offset_s=s_ref / self.fs - t_rx,
+                    clock_drift_ppb=drift_ppb, next_pps_sample=float(s_ref + (next_sec - t_rx) * self.fs * rate),
+                    next_pps_tow=float(next_sec))
 
     def on_status(self, msg):
         d = pmt.to_python(msg)
@@ -184,6 +212,7 @@ class pvt_solver(gr.basic_block):
                 self.message_port_pub(pmt.intern("fix"), pmt.to_pmt(dict(ok=False, n=len(chans))))
                 return
             self.n_fixes += 1
+            time_out = self._timing(fx) if fx["valid"] else {}
             kf_out = None
             if self.kf is not None and fx["valid"]:
                 xk, reset = self.kf.update(fx["epoch_sample"] / self.fs, fx["ecef"], np.array(fx.get("cov_ecef")))
@@ -197,7 +226,7 @@ class pvt_solver(gr.basic_block):
                        altitude_plausible=fx["altitude_plausible"], valid=fx["valid"], residuals_m=fx["residuals_m"],
                        ecef=fx["ecef"], llh=list(fx["llh"]), clock_bias_s=fx["clock_bias_s"],
                        epoch_sample=fx["epoch_sample"], iono=self.iono_src, count=self.n_fixes,
-                       raim=fx["raim"], weights=fx["weights"], smoothed=fx.get("smoothed", {}), **(kf_out or {}),
+                       raim=fx["raim"], weights=fx["weights"], smoothed=fx.get("smoothed", {}), **(kf_out or {}), **time_out,
                        borrowed=[c["prn"] for c in chans if c.get("borrowed")],
                        azel={str(p): list(v) for p, v in fx["azel"].items()})     # the sky, for the panel
             if P is not None and len(P) >= 3:

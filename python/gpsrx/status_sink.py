@@ -115,6 +115,10 @@ class status_sink(gr.basic_block):
                 if "scatter_m" in f:
                     txt += f", {f['averaged']}-fix scatter {f['scatter_m']:.1f} m"
                 lines.append(txt)
+                if f.get("gps_tow") is not None:
+                    lines.append(f" TIME: GPS TOW {f['gps_tow']:.6f} s (week {f.get('gps_week_mod1024')} mod 1024) at sample {f['epoch_sample']:.1f}; "
+                                 f"sample clock {(f['clock_drift_ppb'] or 0):+.1f} ppb; next PPS at sample {f['next_pps_sample']:.1f}"
+                                 + (" (drift not yet fitted)" if f.get("clock_drift_ppb") is None else ""))
             elif f:
                 lines.append(f" solve failed with {f.get('n')} channels")
             ev, self.events = self.events, []

@@ -168,3 +168,14 @@ def test_a_detected_fault_that_cannot_be_isolated_is_not_believed():
     fx = pvt.solve(entries)
     assert not fx["raim"]["pass"] and fx["raim"]["excluded"] is None
     assert fx["altitude_plausible"] and not fx["valid"]
+
+
+def test_the_solve_gives_gps_time_at_the_receive_sample():
+    """The receiver clock bias is solved with the position: t_rx comes back as GPS time to nanoseconds."""
+    t0 = 302400.0
+    rx = llh_to_ecef(*RX_LLH)
+    t_rx = t0 + 100.0
+    ephs = visible(rx, constellation(t0, rx), t_rx)
+    entries = [dict(prn=e["prn"], eph=e, t_sv=observe(rx, e, t_rx), cn0_db=45.0) for e in ephs]
+    fx = pvt.solve(entries)
+    assert abs(fx["t_rx"] - t_rx) < 5e-9, fx["t_rx"] - t_rx          # 5 ns = 1.5 m
