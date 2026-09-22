@@ -2,13 +2,15 @@
 
 2026-09-22 · pure NumPy engines; the Channel block under GNU Radio 3.10.12 (radioconda)
 
-## Tests (no capture, no radio): 13 pass
+## Tests (no capture, no radio): 14 engine tests + 4 flowgraph QA, all pass
 
 | file | proves |
 |---|---|
 | `test_track.py` (6) | C/A code vs the published chips; **gate 0:** open-loop prompts equal numpy-gps's `prompts_ms()` to 1e-9; closed loop pulls in from 40 Hz / 0.6 chip off and recovers the data bits; the epoch count is a consistent clock; eight satellites over one noise floor all lock (PLL lock > 0.85); throughput number |
 | `test_nav.py` (3) | parity round trip and flipped-bit detection; ephemeris round trip to one LSB per field from clean bits; ephemeris + timing anchors 6000 periods apart from a tracked synthetic satellite carrying a real message |
 | `test_pvt.py` (4) | six-satellite synthetic constellation round trip to < 0.5 m; transmit time from the epoch count and the common receive instant; the epoch's fractional arrival sample to < 0.15 chip; the size of the clock-order error |
+| `test_acquire.py` (1) | four synthetic satellites found at their code phase (< 1 sample) and Doppler (< 15 Hz after refinement), no absent PRN reported, the metric separates present from absent by > 1.5x |
+| `qa_receiver.py` (1, GNU Radio) | the whole flowgraph on a synthetic sky: Acquisition finds all four and assigns them, every Channel locks and reports an absolute observable, every Nav Decoder anchors on the 6 s grid with 6000 periods between subframes |
 | `qa_channel.py` (3, GNU Radio) | idle channel; eight channel blocks lock on a synthetic sky and publish observables; a lost signal is reported and the channel idles |
 
 ## Gate 1: throughput (decides Python vs C++ for the Channel)
@@ -39,6 +41,21 @@ pseudoranges, and the receiver whose fixes repeat to 10 m and whose residuals ar
 one with the better pseudoranges. The remaining question - which is *true* - needs an
 independent position and is left to the owner.
 
+## The flowgraph on real air (same 240 s capture)
+
+| run | channels | result |
+|---|---|---|
+| `apps/gpsrx_replay.py` (Receiver hier block), 60 s | 8 | first fix at 7 s search + 36 s of stream; 7 satellites, rms 2.5 m, PDOP 2.4, 15-fix scatter 10.8 m, iono decoded from the stream; **9.9 m from the offline engine's fix** (E +3.9, N +4.2, U -8.1) |
+| `build/grc/gpsrx_canvas.py` (grcc output, unedited), 240 s | 4 | 203 fixes; 4 satellites exactly -> rms 0 by construction, PDOP 17 (the four strongest cluster in the sky), scatter 45-77 m: geometry, so the canvas example now carries six channels |
+| `build/grc/gpsrx_replay_qt.py` + Sky Panel, 330 s wall | 8 | 7 satellites, rms 2.2 m, PDOP 2.4, scatter 13.9 m over 11; the panel draws the sky from the fix's az/el and shows no coordinate |
+
+Acquisition metric on air, 100 ms non-coherent: the seven real satellites 3.7-22.7, the best absent
+PRN 1.7; threshold 2.5. Search 6.7-7.0 s on one core.
+
+Replay lesson: a file source runs as fast as its readers, and idle channels read fast - 30 s of
+capture streamed past during the first 7 s search and were never tracked. The Acquisition block's
+`hold` stops the stream while a search runs (replay only; live, the radio paces it).
+
 ## Defects found by testing (all fixed)
 
 1. Costas discriminator written as `atan2(Q, I)`: a 180-degree data flip read as a 165-degree phase error, the carrier slewed 100 Hz, every bit transition glitched. Must be `atan(Q/I)`. (Two hours.)
@@ -49,3 +66,7 @@ independent position and is left to the owner.
 6. The observable reported the code phase at the period's END (0.05-0.33 chip past the epoch) and the boundary on a whole sample: up to 250 m of range error, fixes wandering 190 m between epochs. Now: the epoch's arrival as a fractional sample. (190 m -> 6.5 m scatter.)
 7. Klobuchar evaluated at a nonsense elevation while the solve was still far from Earth returned NaN and the least squares "did not converge". Atmosphere now applied only near the surface, above the horizon, if finite.
 8. A parity-clean false frame (ten words by chance) gave one satellite a TOW past the end of the week and a residual of 10^13 m. Frames now need TOW < 604800 and continuity (6 s per 6000 periods, ids stepping 1-5) with the previous one.
+9. Replay raced past the receiver during the search (above): `hold`.
+10. A code phase found seconds earlier was wrapped forward with the NOMINAL code period; at 5 kHz of Doppler the code runs 3 chips/s fast, 22 chips over a 7 s search. Wrapped with the Doppler-shifted period.
+11. The Channel block's `epoch_sample` was relative to its own engine start, not the flowgraph's sample clock: fine for one channel, wrong for a solve across eight. Made absolute.
+12. The GNU Radio Python gateway looks message handlers up by NAME: a lambda handler raised `no attribute '<lambda>'` on a scheduler thread and the test saw an empty sink.

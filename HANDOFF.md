@@ -38,3 +38,12 @@ owner's known coordinates (compare lab_local/fix_240.json llh_mean vs numpy-gps 
 Fixed tonight: epoch arrival as fractional sample (the big one), false-frame rejection, atmosphere guard, Doppler
 refinement before tracking. Next: Acquisition + Nav + PVT + Sky Panel as blocks (Python, low-rate), C++ Channel on
 Ubuntu, replay GRC flowgraph, then live.
+
+## 9/22 later — THE FLOWGRAPH FIXES. LOCAL @464ff65+. Blocks: acquisition, channel, nav_decoder, pvt_solver, status_sink,
+sky_panel (Qt), receiver (hier). grc/*.block.yml <- util/make_blocks.py; examples/*.grc <- util/make_grc.py (replay,
+canvas[6 ch], replay_qt, radio_qt); check: util/grc_screenshot.py (needs radioconda Library/bin on PATH), grcc -o build/grc.
+Run: apps/gpsrx_replay.py CAPTURE --fix-file lab_local/x.json  |  util/run_qt_shot.py build/grc/gpsrx_replay_qt.py --set capture=..
+--set fix_file=.. --seconds 330 --png lab_local/shot.png. Results: 7 birds rms 2.2-2.5 m PDOP 2.4 scatter 11-14 m, 9.9 m from
+the offline fix. Private: lab_local/{fix_replay,fix_canvas,fix_qt}.json, sky_panel_shot.png (a sky plot at a known time is a
+coarse location hint - user decides if it is ever shown). Next: C++ Channel on Ubuntu (gate 1), live run (radio_qt.grc, RSPdx
+ANT-B bias-T), then the walkthrough.

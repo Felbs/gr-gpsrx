@@ -1,6 +1,15 @@
 # gr-gpsrx design: a GPS L1 C/A receiver made of GNU Radio blocks
 
-Status: design, for approval. No code, no repository yet.
+> **Status 2026-09-22:** built as designed, in Python: all six blocks plus a Receiver hier block,
+> four flowgraphs, the tests in the gates section; gate 0 passed, gate 1 failed (0.17x for eight
+> Python channels -> the Channel goes to C++), gate 2 superseded by a finding (this receiver's
+> pseudoranges repeat better than the reference's; see TEST_REPORT), gate 3 passed on air
+> (rms 2.2-3.6 m), gate 4 (live) not yet run. Differences from the text below: the allocator
+> lives inside the Acquisition block (no separate Channel Bank block; the Receiver hier block
+> plays that role), and the observable carries the epoch's fractional arrival sample rather
+> than a whole-sample boundary plus code phase.
+
+Status: built (see the note above). Local repository, not published.
 
 ## Purpose
 
