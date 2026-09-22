@@ -28,3 +28,13 @@ Next: decide Python vs C++ Channel (gate 1), then Acquisition block + Channel Ba
   the Ubuntu rig (this PC has no compiler). The Python block stays as the reference for the C++ one.
   GR gateway traps: `set_min_input_buffer` is not exposed to Python; `set_output_multiple(n)` means a
   short batch is an ERROR (pad or return 0); a Python source must be kept referenced (`tb.keep`).
+
+## 9/22 night — IT FIXES. Offline, both attic captures. LOCAL git @de48f21 + docs; NO GitHub repo.
+`apps/gpsrx_offline.py CAPTURE --secs N` (needs NUMPY_GPS_DIR for acquisition) -> lab_local/fix.json (GITIGNORED;
+coordinates never printed). 120 s: 8 birds rms 3.6 m; 240 s: 7 birds rms 0.3 m; repeat 9.9 m (numpy-gps 102 m on the
+same two). The two receivers disagree by ~150 m (E+90 N-44 U+112) on the same capture; solvers agree (their prs
+through ours = 9 m), so it is the pseudoranges - ours repeat, theirs wander in altitude. WHICH IS TRUE needs the
+owner's known coordinates (compare lab_local/fix_240.json llh_mean vs numpy-gps lab_local/fix_result.json).
+Fixed tonight: epoch arrival as fractional sample (the big one), false-frame rejection, atmosphere guard, Doppler
+refinement before tracking. Next: Acquisition + Nav + PVT + Sky Panel as blocks (Python, low-rate), C++ Channel on
+Ubuntu, replay GRC flowgraph, then live.
