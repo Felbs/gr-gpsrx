@@ -30,7 +30,7 @@ public:
     static constexpr double CARRIER_TO_CODE = CODE_RATE / L1_HZ;
 
     tracker(int prn, double fs, double doppler_hz, double code_phase_samples, double pll_bw, double dll_bw,
-            double pll_bw_narrow = 15.0, double dll_bw_narrow = 0.5, int coherent_ms = 20);
+            double pll_bw_narrow = 15.0, double dll_bw_narrow = 0.5, int coherent_ms = 20, int pll_order = 3);
 
     int samples_needed() const;
     // exactly samples_needed() samples in; the prompt out; state advanced
@@ -63,6 +63,8 @@ private:
     int coh_;
     int64_t flips_[20] = { 0 };
     double last_ip_ = 0.0, f_avg_ = 0.0, cd_avg_ = 0.0;
+    int pll_order_;
+    double w3_ = 0.0, acc3_ = 0.0, vel3_ = 0.0; // third-order loop (narrow stage), Kaplan & Hegarty form
     bool have_f_avg_ = false, aligned_ = false;
     std::complex<double> acc_[3] = { 0, 0, 0 };
     double acc_dt_ = 0.0;
@@ -78,7 +80,7 @@ private:
     double fs_;
     int slot_;
     double pll_bw_, dll_bw_, pll_bw_narrow_, dll_bw_narrow_;
-    int coherent_ms_;
+    int coherent_ms_, pll_order_;
     int obs_every_, batch_;
     std::mutex mtx_;
     int prn_ = 0;
@@ -99,7 +101,7 @@ private:
 
 public:
     channel_cc_impl(double samp_rate, int slot, double pll_bw, double dll_bw, int obs_every_ms,
-                    double pll_bw_narrow, double dll_bw_narrow, int coherent_ms);
+                    double pll_bw_narrow, double dll_bw_narrow, int coherent_ms, int pll_order);
     ~channel_cc_impl() override;
 
     void forecast(int noutput_items, gr_vector_int& ninput_items_required) override;

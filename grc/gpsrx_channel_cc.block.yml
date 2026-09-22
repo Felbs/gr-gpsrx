@@ -9,7 +9,7 @@ documentation: 'The same Channel as GPS Channel, in C++: eight of them run at 15
 
   line - a Nav Decoder or PVT cannot tell which it is wired to. Use this one live.'
 templates: {imports: from gnuradio import gpsrx, make: 'gpsrx.channel_cc(${samp_rate}, ${slot}, ${pll_bw},
-    ${dll_bw}, ${obs_every_ms}, ${pll_bw_narrow}, ${dll_bw_narrow}, ${coherent_ms})'}
+    ${dll_bw}, ${obs_every_ms}, ${pll_bw_narrow}, ${dll_bw_narrow}, ${coherent_ms}, ${pll_order})'}
 parameters:
 - {id: samp_rate, label: Sample rate, dtype: real, default: samp_rate}
 - {id: slot, label: Slot, dtype: int, default: '0'}
@@ -19,6 +19,12 @@ parameters:
 - {id: pll_bw_narrow, label: PLL bandwidth after bit sync (Hz), dtype: real, default: '15.0'}
 - {id: dll_bw_narrow, label: DLL bandwidth after bit sync (Hz), dtype: real, default: '0.5'}
 - {id: coherent_ms, label: Coherent integration after bit sync (ms), dtype: int, default: '20'}
+- id: pll_order
+  label: PLL order after bit sync
+  dtype: enum
+  default: '3'
+  options: ['3', '2']
+  option_labels: ['3 (follows a Doppler rate: moving)', 2 (classic)]
 inputs:
 - {domain: stream, dtype: complex}
 - {domain: message, id: assign}

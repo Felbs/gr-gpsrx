@@ -63,9 +63,10 @@ static inline int chip_index(double phase_chips)
 }
 
 tracker::tracker(int prn_, double fs_, double doppler_hz, double code_phase_samples, double pll_bw, double dll_bw,
-                 double pll_bw_narrow, double dll_bw_narrow, int coherent_ms)
+                 double pll_bw_narrow, double dll_bw_narrow, int coherent_ms, int pll_order)
     : prn(prn_), fs(fs_), carrier_hz(doppler_hz), doppler0_(doppler_hz),
-      pll_bw_narrow_(pll_bw_narrow), dll_bw_narrow_(dll_bw_narrow), coh_(pll_bw_narrow > 0 ? coherent_ms : 1)
+      pll_bw_narrow_(pll_bw_narrow), dll_bw_narrow_(dll_bw_narrow), coh_(pll_bw_narrow > 0 ? coherent_ms : 1),
+      pll_order_(pll_order)
 {
     ca_code(prn, code_);
     // acquisition hands over the sample at which the code starts; the phase at sample 0 is
@@ -161,7 +162,13 @@ std::complex<double> tracker::step(const std::complex<float>* x, int n)
     // 3. PLL: Costas discriminator atan(Q/I) (NOT atan2: blind to the data flips), error in
     //    cycles, loop filter -> frequency correction; the NCO phase accumulation integrates it
     const double e_pll = ipw != 0.0 ? std::atan(qpw / ipw) / (2.0 * M_PI) : 0.0;
-    carr_corr_ += (pll_t2_ * (e_pll - pll_e_prev) + dt_loop * e_pll) / pll_t1_;
+    if (w3_ > 0.0) { // third order: acceleration integrator, rate integrator, direct term (track.py)
+        acc3_ += w3_ * w3_ * w3_ * e_pll * dt_loop;
+        vel3_ += (acc3_ + 1.1 * w3_ * w3_ * e_pll) * dt_loop;
+        carr_corr_ = vel3_ + 2.4 * w3_ * e_pll;
+    } else {
+        carr_corr_ += (pll_t2_ * (e_pll - pll_e_prev) + dt_loop * e_pll) / pll_t1_;
+    }
     pll_e_prev = e_pll;
     carrier_hz = doppler0_ + carr_corr_;
     // 4. DLL: normalised early-minus-late envelope, carrier-aided code rate
@@ -199,6 +206,11 @@ void tracker::bit_sync(double ip)
             carr_corr_ = f_avg_ - doppler0_;
             carrier_hz = f_avg_;
         }
+        if (pll_order_ == 3) {
+            w3_ = pll_bw_narrow_ / 0.7845;
+            acc3_ = 0.0;
+            vel3_ = have_f_avg_ ? f_avg_ - doppler0_ : carr_corr_;
+        }
         code_dop_ = cd_avg_; // and the averaged code-rate correction (track.py)
         code_rate = CODE_RATE + carrier_hz * CARRIER_TO_CODE + code_dop_;
     }
@@ -206,14 +218,14 @@ void tracker::bit_sync(double ip)
 
 // ---- the block ------------------------------------------------------------------------------
 channel_cc::sptr channel_cc::make(double samp_rate, int slot, double pll_bw, double dll_bw, int obs_every_ms,
-                                  double pll_bw_narrow, double dll_bw_narrow, int coherent_ms)
+                                  double pll_bw_narrow, double dll_bw_narrow, int coherent_ms, int pll_order)
 {
     return gnuradio::make_block_sptr<channel_cc_impl>(samp_rate, slot, pll_bw, dll_bw, obs_every_ms,
-                                                      pll_bw_narrow, dll_bw_narrow, coherent_ms);
+                                                      pll_bw_narrow, dll_bw_narrow, coherent_ms, pll_order);
 }
 
 channel_cc_impl::channel_cc_impl(double samp_rate, int slot, double pll_bw, double dll_bw, int obs_every_ms,
-                                 double pll_bw_narrow, double dll_bw_narrow, int coherent_ms)
+                                 double pll_bw_narrow, double dll_bw_narrow, int coherent_ms, int pll_order)
     : gr::block("gpsrx_channel_cc",
                 gr::io_signature::make(1, 1, sizeof(gr_complex)),
                 gr::io_signature::make(1, 1, sizeof(gr_complex))),
@@ -224,6 +236,7 @@ channel_cc_impl::channel_cc_impl(double samp_rate, int slot, double pll_bw, doub
       pll_bw_narrow_(pll_bw_narrow),
       dll_bw_narrow_(dll_bw_narrow),
       coherent_ms_(coherent_ms),
+      pll_order_(pll_order),
       obs_every_(obs_every_ms),
       batch_(3)
 {
@@ -324,7 +337,7 @@ int channel_cc_impl::general_work(int noutput_items,
         double rel = std::fmod(pend_sample_ - (double)start, period);
         if (rel < 0)
             rel += period;
-        eng_.reset(new tracker(pend_prn_, fs_, pend_dop_, rel, pll_bw_, dll_bw_, pll_bw_narrow_, dll_bw_narrow_, coherent_ms_));
+        eng_.reset(new tracker(pend_prn_, fs_, pend_dop_, rel, pll_bw_, dll_bw_, pll_bw_narrow_, dll_bw_narrow_, coherent_ms_, pll_order_));
         t0_abs_ = start;
         lost_run_ = 0;
         have_pending_ = false;

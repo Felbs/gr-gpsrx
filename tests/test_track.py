@@ -127,3 +127,24 @@ def test_throughput_eight_channels_real_time():
     wall = time.perf_counter() - t0
     print(f"\n8 locked channels x 1 s of samples: {wall:.2f} s CPU = {1.0 / wall:.2f}x real time")
     assert wall < 2.0
+
+
+def test_third_order_loop_follows_a_doppler_rate():
+    """A car accelerating: 26 Hz/s at L1. The 2nd-order narrow loop carries a standing phase
+    error (12 deg, lock 0.86, measured); the 3rd-order one does not (7 deg, lock 0.96)."""
+    from gpsrx import navgen
+    bits = np.where(navgen.frame_bits(navgen.EXAMPLE_EPH, tow_count0=50400, n_subframes=3) > 0, 1.0, -1.0)
+    x, tr = synth.satellite(7, FS, 8.0, doppler_hz=987.0, code_phase_samples=333, cn0_dbhz=44, bits=bits, seed=2,
+                            doppler_rate_hz_s=40.0)
+    xd = x.astype(np.complex128)
+    locks = {}
+    for order in (2, 3):
+        ch = Channel(7, FS, 987.0 + 20.0, 333.4, pll_order=order)
+        pos = 0
+        while pos + ch.samples_needed() <= len(xd):
+            n = ch.samples_needed()
+            ch.step(xd[pos:pos + n])
+            pos += n
+        locks[order] = ch.s.lock
+        assert abs(ch.s.carrier_hz - (tr["doppler_hz"] + 40.0 * pos / FS)) < 3.0, (order, ch.s.carrier_hz)
+    assert locks[3] > 0.9 and locks[3] > locks[2] + 0.1, locks

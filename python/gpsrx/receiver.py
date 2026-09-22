@@ -26,7 +26,7 @@ from .pvt_solver import pvt_solver
 class receiver(gr.hier_block2):
     def __init__(self, samp_rate=2.048e6, n_channels=8, interval_s=20.0, threshold=2.5, n_noncoh=100,
                  pll_bw=18.0, dll_bw=2.0, iono_file="", fix_file="", average=15, hold=False, engine="auto",
-                 eph_file="", pll_bw_narrow=15.0, dll_bw_narrow=0.5, coherent_ms=20, smoothing=100, kf_vel_sd=4.0, lo_search_hz=0.0):
+                 eph_file="", pll_bw_narrow=15.0, dll_bw_narrow=0.5, coherent_ms=20, smoothing=100, kf_vel_sd=4.0, lo_search_hz=0.0, pll_order=3):
         # engine: "cpp" (channel_cc, 15x real time for eight), "python" (channel, 0.17x: replay
         # only), "auto" = C++ if it was built. Same ports, tags and messages either way.
         try:
@@ -52,10 +52,10 @@ class receiver(gr.hier_block2):
         for s in range(int(n_channels)):
             if engine == "cpp":
                 ch = channel_cc(float(samp_rate), s, float(pll_bw), float(dll_bw), 1000,
-                                float(pll_bw_narrow), float(dll_bw_narrow), int(coherent_ms))
+                                float(pll_bw_narrow), float(dll_bw_narrow), int(coherent_ms), int(pll_order))
             else:
                 ch = channel(samp_rate, slot=s, pll_bw=pll_bw, dll_bw=dll_bw, pll_bw_narrow=pll_bw_narrow,
-                             dll_bw_narrow=dll_bw_narrow, coherent_ms=coherent_ms)
+                             dll_bw_narrow=dll_bw_narrow, coherent_ms=coherent_ms, pll_order=pll_order)
             dec = nav_decoder(slot=s)
             self.connect(self, ch, dec)
             self.msg_connect(self.acq, "assign", ch, "assign")

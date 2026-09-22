@@ -52,6 +52,7 @@ def main():
     ap.add_argument("--pll-narrow", type=float, default=15.0)
     ap.add_argument("--smoothing", type=int, default=100)
     ap.add_argument("--lo-search", type=float, default=0.0, help="RTL-SDR-class radios: wide first search for the LO offset, +-Hz (50000)")
+    ap.add_argument("--pll-order", type=int, default=3, help="narrow-stage PLL order: 3 follows a Doppler rate (moving), 2 classic")
     ap.add_argument("--kf-vel-sd", type=float, default=4.0)
     ap.add_argument("--every", type=float, default=10.0)
     a = ap.parse_args()
@@ -73,7 +74,7 @@ def main():
             print(f"setting {k} = {src.read_setting(k) if hasattr(src, 'read_setting') else v}", flush=True)
         rx = gpsrx.receiver(a.rate, n_channels=a.channels, interval_s=a.interval, iono_file=a.iono_file,
                             fix_file=a.fix_file, eph_file=a.eph_file, hold=False, engine="cpp",
-                            pll_bw_narrow=a.pll_narrow, smoothing=a.smoothing, kf_vel_sd=a.kf_vel_sd, lo_search_hz=a.lo_search)
+                            pll_bw_narrow=a.pll_narrow, smoothing=a.smoothing, kf_vel_sd=a.kf_vel_sd, lo_search_hz=a.lo_search, pll_order=a.pll_order)
         st = gpsrx.status_sink(every_s=a.every, log_file=a.log)
         tb.connect(src, rx)
         for port in ("sky", "status", "obs", "nav", "fix"):

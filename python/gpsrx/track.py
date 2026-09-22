@@ -67,7 +67,8 @@ class Channel:
     RAMP_TOL = 5.0          # Hz: rebuild the NCO ramp when the Doppler estimate moves this much (5 Hz over 1 ms = 1.8 deg, under the loop noise)
 
     def __init__(self, prn, fs, doppler_hz, code_phase_samples, pll_bw=18.0, dll_bw=2.0, spacing=0.5,
-                 open_loop=False, pll_bw_narrow=15.0, dll_bw_narrow=0.5, coherent_ms=20, fll_bw=0.0, fll_periods=1000):
+                 open_loop=False, pll_bw_narrow=15.0, dll_bw_narrow=0.5, coherent_ms=20, fll_bw=0.0, fll_periods=1000,
+                 pll_order=3):
         # Two stages, as gnss-sdr does it: wide loops and 1 ms integration to pull in; then, once
         # the data-bit edges are known, NARROW loops and coherent integration over a whole bit
         # (coherent_ms, a divisor of 20). The correlators sum across the bit - 13 dB more
@@ -91,6 +92,12 @@ class Channel:
         # sign like the Costas one - nudges the NCO frequency. A PLL cannot pull in a carrier
         # tens of Hz off at low C/N0; a frequency loop can. 0 = off.
         self.fll_bw, self.fll_periods = float(fll_bw), int(fll_periods)
+        # pll_order 3 (the narrow stage): a third-order loop follows a Doppler RATE with no standing
+        # phase error - a car's 26 Hz/s leaves a 2nd-order 15 Hz loop 0.3 rad behind. Kaplan & Hegarty
+        # 5.6 form: wn = bw / 0.7845, a3 = 1.1, b3 = 2.4; two integrators (acceleration, rate).
+        self.pll_order = int(pll_order)
+        self._acc3 = 0.0                       # the acceleration integrator
+        self._w3 = 0.0
         self._prev_prompt = None
         self._m2 = self._m4 = 0.0              # C/N0: running second and fourth moments of |P|
         self._mn = 0
@@ -225,7 +232,15 @@ class Channel:
             # atan(Q/I), NOT atan2: the single-argument form is blind to a 180-degree data flip
             # (atan2 read a bit transition as a 165-degree phase error and slewed the carrier 100 Hz)
             e_pll = np.arctan(qp_ / ip_) / (2 * np.pi) if ip_ != 0 else 0.0     # cycles, (-1/4, 1/4)
-            self.carr_corr += (self.pll_t2 * (e_pll - s.pll_e_prev) + dt_loop * e_pll) / self.pll_t1
+            if self._w3 > 0.0:
+                # third order (narrow stage): the error drives an acceleration integrator, that plus a
+                # proportional term drives the frequency, plus a direct term
+                w = self._w3
+                self._acc3 += w ** 3 * e_pll * dt_loop
+                self._vel3 += (self._acc3 + 1.1 * w * w * e_pll) * dt_loop
+                self.carr_corr = self._vel3 + 2.4 * w * e_pll
+            else:
+                self.carr_corr += (self.pll_t2 * (e_pll - s.pll_e_prev) + dt_loop * e_pll) / self.pll_t1
             s.pll_e_prev = e_pll
             s.carrier_hz = self.doppler0 + self.carr_corr
             # 4. DLL: normalised early-minus-late envelope, error in chips, the same filter,
@@ -258,6 +273,10 @@ class Channel:
                 # bandwidth tried (measured); with k=1 it is 0.4 and 5-15 Hz all hold
                 self.pll_t1, self.pll_t2 = loop_gains(self.pll_bw_narrow, k=1.0)
                 self.dll_t1, self.dll_t2 = loop_gains(self.dll_bw_narrow)
+                if self.pll_order == 3:
+                    self._w3 = self.pll_bw_narrow / 0.7845
+                    self._acc3 = 0.0
+                    self._vel3 = (self._f_avg - self.doppler0) if self._f_avg is not None else self.carr_corr
                 # start the narrow loop from the AVERAGED frequency: the 1 ms loop jitters
                 # +-5-10 Hz, and a 20 ms window can only pull in ~10 Hz (a handover that
                 # landed at +10 Hz drove one synthetic bird to a false lock 18 Hz off, measured)

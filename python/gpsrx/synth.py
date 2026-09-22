@@ -17,15 +17,19 @@ from .cacode import CODE_LEN, CODE_RATE, L1_HZ, code_at
 
 
 def satellite(prn, fs, secs, doppler_hz=1234.5, code_phase_samples=700, cn0_dbhz=45.0, bits=None,
-              carrier_phase=0.3, seed=1, code_doppler=True, noise=True):
+              carrier_phase=0.3, seed=1, code_doppler=True, noise=True, doppler_rate_hz_s=0.0):
     """Baseband complex64 samples. Noise power 1 per sample (complex); signal power set from C/N0
     at this sample rate. `bits`: array of +-1 at 50 bit/s (random if None). Returns (x, truth)."""
     rng = np.random.default_rng(seed)
     n = int(round(fs * secs))
     t = np.arange(n) / fs
+    # a Doppler RATE (a car accelerating: 5 m/s^2 is 26 Hz/s at L1) ramps the carrier and, with it,
+    # the code rate; the code phase is the integral of the code rate
+    f_t = doppler_hz + doppler_rate_hz_s * t
     rate = CODE_RATE * (1 + doppler_hz / L1_HZ) if code_doppler else CODE_RATE
-    # code phase: the code STARTS at sample code_phase_samples
     ph = (t - code_phase_samples / fs) * rate
+    if code_doppler and doppler_rate_hz_s:
+        ph = ph + CODE_RATE / L1_HZ * doppler_rate_hz_s * (t - code_phase_samples / fs) ** 2 / 2.0
     code = code_at(prn, ph)
     n_bits = int(np.ceil(secs * 50)) + 1
     if bits is None:
@@ -35,11 +39,11 @@ def satellite(prn, fs, secs, doppler_hz=1234.5, code_phase_samples=700, cn0_dbhz
     data = bits[np.minimum(bit_of_sample, len(bits) - 1)]
     # amplitude from C/N0: complex noise of unit power over bandwidth fs -> N0 = 1/fs; C = A^2
     amp = np.sqrt(10 ** (cn0_dbhz / 10) / fs)
-    sig = amp * code * data * np.exp(1j * (carrier_phase + 2 * np.pi * doppler_hz * t))
+    sig = amp * code * data * np.exp(1j * (carrier_phase + 2 * np.pi * (doppler_hz * t + doppler_rate_hz_s * t * t / 2.0)))
     if noise:
         sig = sig + (rng.standard_normal(n) + 1j * rng.standard_normal(n)) / np.sqrt(2)
     x = sig.astype(np.complex64) if noise else sig
-    truth = {"prn": prn, "fs": fs, "doppler_hz": doppler_hz, "code_phase_samples": code_phase_samples,
+    truth = {"prn": prn, "fs": fs, "doppler_hz": doppler_hz, "doppler_rate_hz_s": doppler_rate_hz_s, "code_phase_samples": code_phase_samples,
              "code_rate": rate, "cn0_dbhz": cn0_dbhz, "bits": bits, "carrier_phase": carrier_phase, "amp": amp}
     return x, truth
 
