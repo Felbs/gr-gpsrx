@@ -94,7 +94,8 @@ def build_replay_qt():
     b = source(y) + [
         blk("rx", "gpsrx_receiver", 560, y - 40, samp_rate="samp_rate", n_channels=8, interval_s=100.0, threshold=2.5,
             iono_file='""', fix_file="fix_file", hold="True", engine="'auto'"),
-        blk("panel", "gpsrx_sky_panel", 900, y - 40, label='"GPS receiver (replay)"', gui_hint="0,0,1,1"),
+        blk("panel", "gpsrx_sky_panel", 900, y - 40, label='"GPS receiver (replay)"', private="private", gui_hint="0,0,1,1"),
+        blk("private", "parameter", 1240, 12, label="Private view (screenshots)", type="intx", value="0", short_id="p"),
     ]
     c = [["src", "0", "to_c", "0"], ["to_c", "0", "rx", "0"]] + [["rx", p, "panel", p] for p in
                                                                    ("sky", "status", "obs", "nav", "fix")]
@@ -126,7 +127,8 @@ def build_radio_qt():
             comment="live needs the C++ Channel (util/build_win.cmd, or cmake on Linux)"),
         blk("spectrum", "qtgui_freq_sink_x", 330, y - 260, type="complex", name='"L1 baseband (the signal is below the noise)"',
             fftsize=1024, fc=0, bw="samp_rate", average=0.02, gui_hint="0,0,1,1"),
-        blk("panel", "gpsrx_sky_panel", 900, y - 40, label='"GPS receiver"', gui_hint="1,0,1,1"),
+        blk("panel", "gpsrx_sky_panel", 900, y - 40, label='"GPS receiver"', private="private", gui_hint="1,0,1,1"),
+        blk("private", "parameter", 1460, 12, label="Private view (screenshots)", type="intx", value="0", short_id="p"),
     ]
     c = [["src", "0", "rx", "0"], ["src", "0", "spectrum", "0"]] + [["rx", p, "panel", p] for p in
                                                                     ("sky", "status", "obs", "nav", "fix")]

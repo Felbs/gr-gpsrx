@@ -13,7 +13,7 @@ SLOT = {"id": "slot", "label": "Slot", "dtype": "int", "default": "0"}
 
 QT_MAKE = """<%
     win = '_%s_win' % id
-%>    ${win} = gpsrx.BLOCK(label=${label}, parent=self)
+%>    ${win} = gpsrx.BLOCK(label=${label}, parent=self, private=${private})
 self.${id} = ${win}
 ${gui_hint() % win}"""
 
@@ -124,9 +124,12 @@ Channel keeps up with a radio; the Python one is for replay and reading.""",
     dict(id="gpsrx_sky_panel", label="GPS Sky Panel", doc="""Qt panel: the sky as a polar plot with every tracked satellite where the fix puts it
 (coloured by lock; on a Doppler ring before the first fix), one line per channel, and the
 fix's quality - satellites, residual rms, PDOP, scatter. It never shows the position.
+Private view: for screenshots - PRN numbers hidden and the sky turned by an undisclosed
+angle, because a named constellation at a known time can be inverted to a rough position.
 Optional: the receiver runs without it. Docks like any QT GUI widget (GUI Hint).""",
          make=None,
          params=[{"id": "label", "label": "Label", "dtype": "string", "default": "GPS receiver"},
+                 {"id": "private", "label": "Private view (screenshots: no PRNs, sky turned)", "dtype": "bool", "default": "False"},
                  {"id": "gui_hint", "label": "GUI Hint", "dtype": "gui_hint", "hide": "part"}],
          inputs=[{"domain": "message", "id": p, "optional": True} for p in ("sky", "status", "obs", "nav", "fix")],
          outputs=[]),

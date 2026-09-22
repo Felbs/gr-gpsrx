@@ -8,11 +8,16 @@ documentation: 'Qt panel: the sky as a polar plot with every tracked satellite w
 
   fix''s quality - satellites, residual rms, PDOP, scatter. It never shows the position.
 
+  Private view: for screenshots - PRN numbers hidden and the sky turned by an undisclosed
+
+  angle, because a named constellation at a known time can be inverted to a rough position.
+
   Optional: the receiver runs without it. Docks like any QT GUI widget (GUI Hint).'
 templates: {imports: from gnuradio import gpsrx, make: "<%\n    win = '_%s_win' % id\n%>    ${win} = gpsrx.sky_panel(label=${label},\
-    \ parent=self)\nself.${id} = ${win}\n${gui_hint() % win}"}
+    \ parent=self, private=${private})\nself.${id} = ${win}\n${gui_hint() % win}"}
 parameters:
 - {id: label, label: Label, dtype: string, default: GPS receiver}
+- {id: private, label: 'Private view (screenshots: no PRNs, sky turned)', dtype: bool, default: 'False'}
 - {id: gui_hint, label: GUI Hint, dtype: gui_hint, hide: part}
 inputs:
 - {domain: message, id: sky, optional: true}

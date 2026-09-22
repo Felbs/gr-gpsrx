@@ -186,6 +186,7 @@ blocks:
   id: gpsrx_sky_panel
   parameters:
     label: '"GPS receiver"'
+    private: private
     gui_hint: 1,0,1,1
   states:
     bus_sink: false
@@ -194,6 +195,22 @@ blocks:
     coordinate:
     - 900
     - 260
+    rotation: 0
+    state: enabled
+- name: private
+  id: parameter
+  parameters:
+    label: Private view (screenshots)
+    type: intx
+    value: '0'
+    short_id: p
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 1460
+    - 12
     rotation: 0
     state: enabled
 connections:

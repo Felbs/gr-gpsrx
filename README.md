@@ -71,6 +71,12 @@ that file out of any repository.
 
 ![the receiver on the canvas](docs/img/grc_canvas.png)
 
+![the Sky Panel on a recording, private view](docs/img/sky_panel_private.png)
+
+*The Sky Panel's private view: a named constellation at a known time can be inverted to a
+rough position, so for screenshots the PRN numbers are hidden and the sky is turned by an
+undisclosed angle. Everything else in the picture is as it ran.*
+
 ## What is not done
 
 - Linux build and CI (the CMake is gr_modtool's; nothing platform-specific in the C++).

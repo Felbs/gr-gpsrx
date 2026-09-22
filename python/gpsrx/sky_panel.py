@@ -19,6 +19,7 @@ import math
 import threading
 import time
 
+import numpy as np
 import pmt
 from gnuradio import gr
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -54,8 +55,11 @@ class _Sky(QtWidgets.QWidget):
         qp.drawLine(int(cx - r), int(cy), int(cx + r), int(cy))
         qp.drawLine(int(cx), int(cy - r), int(cx), int(cy + r))
         qp.setPen(QtGui.QColor(140, 140, 140))
-        qp.drawText(int(cx - 4), int(cy - r - 4), "N")
-        qp.drawText(int(cx + r + 3), int(cy + 4), "E")
+        if self.p.private:
+            qp.drawText(int(cx - r), int(cy + r + 14), "sky turned, satellites unnamed (private view)")
+        else:
+            qp.drawText(int(cx - 4), int(cy - r - 4), "N")
+            qp.drawText(int(cx + r + 3), int(cy + 4), "E")
         with self.p.lock:
             chans = dict(self.p.chan)
             azel = dict(self.p.azel)
@@ -66,18 +70,20 @@ class _Sky(QtWidgets.QWidget):
             o = c.get("obs") or {}
             if str(prn) in azel:
                 az, el = azel[str(prn)]
+                az += self.p.rotate
                 rr = r * (90 - max(el, 0)) / 90
                 x, y = cx + rr * math.sin(math.radians(az)), cy - rr * math.cos(math.radians(az))
             else:                                       # no fix yet: a ring, placed by Doppler
                 dop = o.get("carrier_hz", 0.0)
-                ang = math.radians(90.0 - dop / 7000.0 * 90.0)
+                ang = math.radians(90.0 - dop / 7000.0 * 90.0 + self.p.rotate)
                 x, y = cx + r * 0.92 * math.cos(ang), cy - r * 0.92 * math.sin(ang)
             col = _lock_colour(o.get("lock") if o else None)
             qp.setBrush(col)
             qp.setPen(col)
             qp.drawEllipse(QtCore.QPointF(x, y), 7, 7)
-            qp.setPen(QtGui.QColor(230, 230, 230))
-            qp.drawText(int(x + 9), int(y + 4), f"{prn}")
+            if not self.p.private:
+                qp.setPen(QtGui.QColor(230, 230, 230))
+                qp.drawText(int(x + 9), int(y + 4), f"{prn}")
 
 
 class sky_panel(gr.basic_block, QtWidgets.QWidget):
@@ -85,9 +91,15 @@ class sky_panel(gr.basic_block, QtWidgets.QWidget):
     in : messages 'sky', 'status', 'obs', 'nav', 'fix'
     """
 
-    def __init__(self, label="GPS receiver", parent=None):
+    def __init__(self, label="GPS receiver", parent=None, private=False):
         gr.basic_block.__init__(self, name="gpsrx_sky_panel", in_sig=None, out_sig=None)
         QtWidgets.QWidget.__init__(self, parent)
+        # private: for screenshots. A sky plot with PRN numbers at a known time can be inverted
+        # to a rough position (the constellation is public). Hide the numbers and turn the whole
+        # sky by an angle drawn at start and never shown: dots with no identity and no bearing
+        # cannot be inverted. The picture is otherwise true.
+        self.private = bool(private)
+        self.rotate = float(np.random.default_rng().uniform(0, 360)) if self.private else 0.0
         self.lock = threading.Lock()
         self.chan, self.nav, self.azel = {}, {}, {}
         self.fix, self.sky, self.t0 = None, None, time.time()
@@ -169,9 +181,10 @@ class sky_panel(gr.basic_block, QtWidgets.QWidget):
                 lines.append(f"slot {s}: idle")
                 continue
             o, nv = c.get("obs"), nav.get(s)
-            txt = f"slot {s}: PRN {c['prn']:2d}"
+            txt = f"slot {s}: PRN {c['prn']:2d}" if not self.private else f"slot {s}: PRN --"
             if o:
-                txt += f"  lock {o['lock']:.2f}  {o['carrier_hz']:+7.1f} Hz  {o['epochs'] / 1000:4.0f} s"
+                txt += f"  lock {o['lock']:.2f}" + (f"  {o['carrier_hz']:+7.1f} Hz" if not self.private else "") \
+                    + f"  {o['epochs'] / 1000:4.0f} s"
             if nv:
                 txt += f"  subframes {nv['n_subframes']:2d}" + ("  ephemeris" if nv.get("complete") else "")
             lines.append(txt)
