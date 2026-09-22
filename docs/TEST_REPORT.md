@@ -111,6 +111,43 @@ the window-centre error scales with Doppler, and a car roof sees the full +-5 kH
 fix on three captures this receiver fixed, and its two four-satellite solutions were 100-700 m out
 (no redundancy). The owner's eyes on a private map of both tracks are the truth check for the road.
 
+## The plan of 22 September, run in order
+
+**1. A live hour** (`apps/gpsrx_live.py`, RSPdx, attic antenna, everything on): 3601 s, **3525 fixes,
+99.8% valid**, a median of 7 satellites, rms 1.9 m, 15-epoch scatter 0.6 m raw / 0.4 m filtered,
+4.5 m spread over the whole hour, the hour's mean 5.8 m from the previous day's live fix; three
+satellites set during the hour and one rose and was picked up; no thread or memory trouble.
+
+**2. Cheap crystals.** An RTL-SDR-class LO can sit 47 kHz off at L1, outside a +-7 kHz search.
+One wide coarse pass (500 Hz steps, 10 ms) finds the strongest satellites wherever they are; the
+median of their Dopplers is the LO offset, and every later search is centred on it with a
+widened window. Synthetic test: four satellites 33 kHz off, invisible to the normal search,
+all found after the offset. Hardware test pending an RTL-SDR on the bench.
+
+**3. Linux.** First build on a Raspberry Pi 5 (Debian, GNU Radio 3.10.12, g++ 14): clean; the 17
+engine tests pass on aarch64/Python 3.13/numpy 2.2; the C++ QA passes and **eight C++ channels run
+at 13.3x real time on the Pi**. GitHub Actions CI: the engine tests on ubuntu-latest, and a
+from-scratch Ubuntu 24.04 build against the distribution's GNU Radio with the three QA files.
+
+**4. Deterministic replay.** Three sources of run-to-run difference on the same file, removed:
+the acquisition snapshot now starts on an exact sample (not a scheduler chunk boundary); each
+channel starts on the exact sample the assignment names; and the PVT solves once per stream
+second using, from every live channel, its observable at or before that second (not whichever
+message happened to arrive first). Two runs of a drive leg: 78 fixes at identical instants,
+identical satellite sets, **position difference 0.000000 m** - and the residual rms fell from
+0.5 to 0.11 m as a side effect, because every observable in a solve now belongs to one instant.
+
+**5. Sensitivity** (synthetic, one satellite, 40 s): tracking and decoding hold to **34 dB-Hz**
+with the two-stage loops (single stage: decodes 4 subframes at 34, Doppler 13 Hz off); 31 dB-Hz
+fails in the first stage (the 1 ms loops never lock). Found on the way: the two-stage handover
+lost the code at 40 dB-Hz because the DLL's rate correction, +-1 chip/s of jitter at 1 ms, was
+handed over unaveraged - now averaged like the carrier; and the switch was gated on lock > 0.8,
+which weak signals never reach - now 0.5. An FLL for pull-in was tried (cross/dot discriminator)
+and measured: no gain at any C/N0 or initial error; kept as an off-by-default option.
+
+**6. The walkthrough** - `docs/WALKTHROUGH.md`, the receiver one block at a time, six figures from
+synthetic satellites (`util/make_figures.py`). **7.** An announcement draft, not posted.
+
 ## Defects found by testing (all fixed)
 
 1. Costas discriminator written as `atan2(Q, I)`: a 180-degree data flip read as a 165-degree phase error, the carrier slewed 100 Hz, every bit transition glitched. Must be `atan(Q/I)`. (Two hours.)

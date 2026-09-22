@@ -77,14 +77,20 @@ class acquisition(gr.sync_block):
     # ---- the stream: copy a snapshot now and then -------------------------------------------
     def work(self, input_items, output_items):
         x = input_items[0]
-        n = len(x)
+        n_in = n = len(x)                                       # n_in is what work() consumes, always
         start = self.nitems_read(0)
         if self.hold and self._worker is not None and self._worker.is_alive():
             time.sleep(0.02)                                   # replay: let the search finish first
             return 0
-        if self._buf is None and start / self.fs >= self._next_at and (self._worker is None or not self._worker.is_alive()):
+        target = int(round(self._next_at * self.fs))
+        if self._buf is None and start + n > target and (self._worker is None or not self._worker.is_alive()):
+            # the snapshot starts on the EXACT sample `target`, not on whatever chunk boundary the
+            # scheduler happened to deliver: with hold, that makes a replay repeatable to the sample
+            skip = max(target - start, 0)
             self._buf = np.empty(self.snap_n, np.complex64)
-            self._buf_start, self._filled = start, 0
+            self._buf_start, self._filled = start + skip, 0
+            x = x[skip:]
+            n = len(x)
         if self._buf is not None:
             take = min(n, self.snap_n - self._filled)
             self._buf[self._filled:self._filled + take] = x[:take]
@@ -92,10 +98,10 @@ class acquisition(gr.sync_block):
             if self._filled >= self.snap_n:
                 snap, s0 = self._buf, self._buf_start
                 self._buf = None
-                self._next_at = (start + n) / self.fs + self.interval
+                self._next_at = self._buf_start / self.fs + self.snap_n / self.fs + self.interval
                 self._worker = threading.Thread(target=self._search, args=(snap, s0), daemon=True)
                 self._worker.start()
-        return n
+        return n_in
 
     def _search(self, snap, s0):
         t = time.time()

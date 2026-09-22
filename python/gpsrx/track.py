@@ -67,7 +67,7 @@ class Channel:
     RAMP_TOL = 5.0          # Hz: rebuild the NCO ramp when the Doppler estimate moves this much (5 Hz over 1 ms = 1.8 deg, under the loop noise)
 
     def __init__(self, prn, fs, doppler_hz, code_phase_samples, pll_bw=18.0, dll_bw=2.0, spacing=0.5,
-                 open_loop=False, pll_bw_narrow=15.0, dll_bw_narrow=0.5, coherent_ms=20):
+                 open_loop=False, pll_bw_narrow=15.0, dll_bw_narrow=0.5, coherent_ms=20, fll_bw=0.0, fll_periods=1000):
         # Two stages, as gnss-sdr does it: wide loops and 1 ms integration to pull in; then, once
         # the data-bit edges are known, NARROW loops and coherent integration over a whole bit
         # (coherent_ms, a divisor of 20). The correlators sum across the bit - 13 dB more
@@ -86,6 +86,12 @@ class Channel:
         self._aligned = False
         self._f_avg = None                     # carrier Doppler averaged over ~100 periods (stage 1)
         self._cd_avg = 0.0                     # the DLL's rate correction, averaged likewise
+        # FLL-assisted pull-in (gnss-sdr's enable_fll_pull_in): for the first fll_periods a
+        # frequency discriminator on consecutive prompts - atan(cross/dot), blind to the data
+        # sign like the Costas one - nudges the NCO frequency. A PLL cannot pull in a carrier
+        # tens of Hz off at low C/N0; a frequency loop can. 0 = off.
+        self.fll_bw, self.fll_periods = float(fll_bw), int(fll_periods)
+        self._prev_prompt = None
         self._m2 = self._m4 = 0.0              # C/N0: running second and fourth moments of |P|
         self._mn = 0
         # acquisition hands over a code phase in SAMPLES (the sample at which the code starts);
@@ -204,6 +210,15 @@ class Channel:
                 self._acc_n, self._acc_dt = 0, 0.0
             else:
                 ip_, qp_, dt_loop = ip, qp, dt
+            # 2b. FLL assist during pull-in: the phase turned between this prompt and the last
+            #     by atan(cross/dot); divided by the period that is the frequency error
+            if self.fll_bw > 0 and s.epochs <= self.fll_periods and not in_window:
+                if self._prev_prompt is not None:
+                    i0, q0 = self._prev_prompt
+                    cross, dot = i0 * qp - ip * q0, i0 * ip + q0 * qp
+                    f_err = np.arctan(cross / dot) / (2 * np.pi * dt) if dot != 0 else 0.0     # Hz
+                    self.carr_corr += self.fll_bw * 4.0 * dt * f_err               # 1st-order loop
+                self._prev_prompt = (ip, qp)
             # 3. PLL: Costas discriminator (atan(Q/I): a data-bit sign flip does not move it),
             #    error in cycles, through the loop filter into a frequency correction; the NCO's
             #    phase accumulation (above) is the loop's integrator.

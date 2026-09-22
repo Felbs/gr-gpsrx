@@ -75,6 +75,7 @@ class pvt_solver(gr.basic_block):
         self.message_port_register_out(pmt.intern("fix"))
         self._lock = threading.Lock()
         self.obs = {}                       # slot -> latest observable (with prn)
+        self.obs_prev = {}                  # slot -> the one before
         self.nav = {}                       # (slot, prn) -> {anchor, eph}
         self.iono, self.iono_src = None, "none"
         if iono_file and os.path.exists(iono_file):
@@ -83,7 +84,8 @@ class pvt_solver(gr.basic_block):
         self.fixes = []
         self.history = []
         self.n_fixes = 0
-        self._last = 0.0
+        self._last = -1.0
+        self._pending = None
 
     def on_nav(self, msg):
         d = pmt.to_python(msg)
@@ -121,7 +123,8 @@ class pvt_solver(gr.basic_block):
         with self._lock:
             slot = int(d["slot"])
             if d.get("what") in ("lost", "idle", "tracking"):
-                self.obs.pop(slot, None)                     # its last observable is not a measurement any more
+                self.obs.pop(slot, None)
+                self.obs_prev.pop(slot, None)                     # its last observable is not a measurement any more
             if d.get("what") in ("tracking", "lost", "idle"):
                 # a new assignment restarts the channel's epoch count at zero: the old TIMING ANCHOR
                 # for this slot is dead (new counts against an old anchor put one satellite 24 s -
@@ -135,15 +138,32 @@ class pvt_solver(gr.basic_block):
         if not isinstance(d, dict) or "slot" not in d:
             return
         with self._lock:
-            self.obs[int(d["slot"])] = d
-            # once per `min_interval` of STREAM time: the receiver's clock is the sample counter
-            # (a wall clock would give one fix per wall second, five per second of capture in replay)
+            slot = int(d["slot"])
+            self.obs_prev[slot] = self.obs.get(slot)         # two deep: the solve picks the one at or before T
+            self.obs[slot] = d
+            # Once per second of STREAM time (the receiver's clock is the sample counter), and only
+            # when every live channel has delivered its observable for that second: the fix then
+            # depends on the samples alone, not on which channel's message happened to arrive
+            # first (that gave ~1 m of run-to-run difference on the same file, measured). A
+            # channel's observable is "for" second T once its epoch is past (T-1) s.
             now = float(d.get("epoch_sample", 0.0)) / self.fs
-            if now - self._last < self.min_interval:
+            T = int(now // self.min_interval) * self.min_interval
+            if T > self._last:
+                self._pending = T
+            if self._pending is None:
                 return
             newest = max(float(o.get("epoch_sample", 0.0)) for o in self.obs.values())
+            T_s = self._pending * self.fs
+            live = {k: o for k, o in self.obs.items() if newest - float(o.get("epoch_sample", 0.0)) <= self.max_age_s * self.fs}
+            if any(float(o.get("epoch_sample", 0.0)) < T_s for o in live.values()):
+                return                                        # someone has not reached T yet: wait
             chans = []
-            for slot, o in self.obs.items():
+            for slot, o in live.items():
+                # the observable AT OR BEFORE T: this one if it is, else the previous one
+                if float(o.get("epoch_sample", 0.0)) > T_s:
+                    o = self.obs_prev.get(slot)
+                    if o is None or int(o.get("prn", 0)) != int(live[slot].get("prn", 0)):
+                        continue
                 if newest - float(o.get("epoch_sample", 0.0)) > self.max_age_s * self.fs:
                     continue
                 ent = self.nav.get((slot, int(o["prn"])))
@@ -152,7 +172,8 @@ class pvt_solver(gr.basic_block):
                                       borrowed=ent.get("borrowed", False)))
             if len(chans) < 4:
                 return
-            self._last = now
+            self._last = self._pending
+            self._pending = None
             try:
                 fx = pvt.fix_from_channels(chans, self.fs, iono=self.iono,
                                            hatch=self.hatch if self.hatch_m > 1 else None, hatch_m=self.hatch_m)
