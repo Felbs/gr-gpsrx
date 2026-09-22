@@ -112,6 +112,8 @@ blocks:
     hold: 'True'
     engine: '''auto'''
     eph_file: '""'
+    smoothing: '100'
+    kf_vel_sd: '4.0'
   states:
     bus_sink: false
     bus_source: false

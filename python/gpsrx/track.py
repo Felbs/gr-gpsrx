@@ -56,7 +56,8 @@ class ChannelState:
     samples_in: int = 0             # samples consumed since start
     pll_e_prev: float = 0.0
     dll_e_prev: float = 0.0
-    cn0_db: float = 0.0
+    cn0_db: float = 0.0             # carrier-to-noise density, dB-Hz (moment estimator over 20 prompts)
+    carrier_cycles: float = 0.0     # accumulated NCO carrier phase, cycles: the carrier-phase observable
     lock: float = 0.0               # 0..1 PLL lock indicator, smoothed
     prompts: list = field(default_factory=list)
 
@@ -84,6 +85,8 @@ class Channel:
         self._acc_dt = 0.0
         self._aligned = False
         self._f_avg = None                     # carrier Doppler averaged over ~100 periods (stage 1)
+        self._m2 = self._m4 = 0.0              # C/N0: running second and fourth moments of |P|
+        self._mn = 0
         # acquisition hands over a code phase in SAMPLES (the sample at which the code starts);
         # the code phase in chips at sample 0 is therefore -(that) * chips/sample, modulo 1023
         chips_per_sample = CODE_RATE / self.fs
@@ -147,6 +150,7 @@ class Channel:
         # advance phases by what this period consumed
         dt = n / self.fs
         s.carrier_phase = (s.carrier_phase + 2 * np.pi * s.carrier_hz * dt) % (2 * np.pi)
+        s.carrier_cycles += s.carrier_hz * dt              # the NCO's own count: -lambda x this = range change
         s.code_phase = (s.code_phase + n * chips_per_sample) % CODE_LEN
         s.samples_in += n
         s.epochs += 1
@@ -157,6 +161,21 @@ class Channel:
             p = ip * ip + qp * qp
             li = (ip * ip - qp * qp) / p if p > 0 else 0.0
             s.lock = 0.98 * s.lock + 0.02 * li
+            # C/N0 by the moment method (gnss-sdr's 'SNR estimation for complex signals', Pauluzzi &
+            # Beaulieu): over N prompts M2 = mean|P|^2, M4 = mean|P|^4; signal power Pd = sqrt(2 M2^2 - M4),
+            # noise Pn = M2 - Pd; C/N0 = Pd / Pn / T. One number per 20 prompts, smoothed.
+            self._m2 += p
+            self._m4 += p * p
+            self._mn += 1
+            if self._mn == 20:
+                m2, m4 = self._m2 / 20, self._m4 / 20
+                pd = np.sqrt(max(2 * m2 * m2 - m4, 0.0))
+                pn = m2 - pd
+                if pd > 0 and pn > 0:
+                    cn0 = 10 * np.log10(pd / pn / self.T)
+                    s.cn0_db = cn0 if s.cn0_db == 0.0 else 0.9 * s.cn0_db + 0.1 * cn0
+                self._m2 = self._m4 = 0.0
+                self._mn = 0
             # bit sync (stage 1 only): where, mod 20, does the prompt's sign flip?
             if self.bit_offset is None and self.coh > 1:
                 self._f_avg = s.carrier_hz if self._f_avg is None else 0.99 * self._f_avg + 0.01 * s.carrier_hz
@@ -247,7 +266,8 @@ class Channel:
         s = self.s
         overshoot_samples = s.code_phase * self.fs / s.code_rate
         return {"prn": self.prn, "epochs": s.epochs, "code_phase": s.code_phase, "carrier_hz": s.carrier_hz,
-                "samples_in": s.samples_in, "epoch_sample": s.samples_in - overshoot_samples, "lock": s.lock}
+                "samples_in": s.samples_in, "epoch_sample": s.samples_in - overshoot_samples, "lock": s.lock,
+                "cn0_db": s.cn0_db, "carrier_cycles": s.carrier_cycles - s.carrier_hz * overshoot_samples / self.fs}
 
 
 def track_array(x, fs, prn, doppler_hz, code_phase_samples, n_ms, **kw):

@@ -47,8 +47,11 @@ public:
     int64_t samples_in = 0;
     double pll_e_prev = 0.0, dll_e_prev = 0.0;
     double lock = 0.0;
+    double cn0_db = 0.0;            // dB-Hz, moment estimator over 20 prompts
+    double carrier_cycles = 0.0;    // accumulated NCO phase in cycles: the carrier-phase observable
     int bit_offset = -1;            // period index (mod 20) at which a data bit begins; -1 = stage 1
     double epoch_sample() const { return samples_in - code_phase * fs / code_rate; }
+    double epoch_cycles() const { return carrier_cycles - carrier_hz * (code_phase * fs / code_rate) / fs; }
 
 private:
     std::array<int8_t, CODE_LEN> code_;
@@ -63,6 +66,8 @@ private:
     bool have_f_avg_ = false, aligned_ = false;
     std::complex<double> acc_[3] = { 0, 0, 0 };
     double acc_dt_ = 0.0;
+    double m2_ = 0.0, m4_ = 0.0;
+    int mn_ = 0;
     void bit_sync(double ip);
     static constexpr double SPACING = 0.5;
 };

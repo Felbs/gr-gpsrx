@@ -26,7 +26,7 @@ from .pvt_solver import pvt_solver
 class receiver(gr.hier_block2):
     def __init__(self, samp_rate=2.048e6, n_channels=8, interval_s=20.0, threshold=2.5, n_noncoh=100,
                  pll_bw=18.0, dll_bw=2.0, iono_file="", fix_file="", average=15, hold=False, engine="auto",
-                 eph_file="", pll_bw_narrow=15.0, dll_bw_narrow=0.5, coherent_ms=20):
+                 eph_file="", pll_bw_narrow=15.0, dll_bw_narrow=0.5, coherent_ms=20, smoothing=100, kf_vel_sd=4.0):
         # engine: "cpp" (channel_cc, 15x real time for eight), "python" (channel, 0.17x: replay
         # only), "auto" = C++ if it was built. Same ports, tags and messages either way.
         try:
@@ -45,7 +45,8 @@ class receiver(gr.hier_block2):
             self.message_port_register_hier_out(port)
         self.acq = acquisition(samp_rate, n_slots=n_channels, interval_s=interval_s, threshold=threshold,
                                n_noncoh=n_noncoh, hold=hold)
-        self.pvt = pvt_solver(samp_rate, average=average, iono_file=iono_file, fix_file=fix_file, eph_file=eph_file)
+        self.pvt = pvt_solver(samp_rate, average=average, iono_file=iono_file, fix_file=fix_file, eph_file=eph_file,
+                              smoothing=smoothing, kf_vel_sd=kf_vel_sd)
         self.chans, self.decs = [], []
         self.connect(self, self.acq)
         for s in range(int(n_channels)):

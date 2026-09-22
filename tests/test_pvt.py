@@ -135,3 +135,23 @@ def test_a_wrong_clock_correction_order_would_be_kilometres_off():
     satellite's pseudorange by c * af0 = 63 km. The solver applies it after; the truth generator
     applies it consistently, so a correct fix means the order is right."""
     assert abs(pvt.C * 2.1e-4 - 62956) < 1
+
+
+def test_raim_names_and_excludes_the_one_bad_pseudorange():
+    """Six satellites, one of them 300 m wrong: the chi-square test fails, exclusion finds the
+    culprit, and the fix is back under a metre."""
+    t0 = 302400.0
+    rx = llh_to_ecef(*RX_LLH)
+    ephs = constellation(t0, rx)
+    t_rx = t0 + 100.0
+    ephs = visible(rx, ephs, t_rx)
+    assert len(ephs) >= 6
+    entries = [dict(prn=e["prn"], eph=e, t_sv=observe(rx, e, t_rx), cn0_db=45.0) for e in ephs[:6]]
+    bad = entries[2]["prn"]
+    entries[2]["t_sv"] -= 300.0 / pvt.C                      # 300 m too long a range
+    fx_noraim = pvt.solve(entries, raim=False)
+    fx = pvt.solve(entries)
+    assert not fx_noraim["raim"]["pass"] and np.linalg.norm(np.array(fx_noraim["ecef"]) - rx) > 20
+    assert fx["raim"]["excluded"] == bad and fx["raim"]["pass"], fx["raim"]
+    assert fx["n"] == 5 and bad not in fx["prns"]
+    assert np.linalg.norm(np.array(fx["ecef"]) - rx) < 1.0, fx["rms_m"]

@@ -183,7 +183,7 @@ class sky_panel(gr.basic_block, QtWidgets.QWidget):
             o, nv = c.get("obs"), nav.get(s)
             txt = f"slot {s}: PRN {c['prn']:2d}" if not self.private else f"slot {s}: PRN --"
             if o:
-                txt += f"  lock {o['lock']:.2f}" + (f"  {o['carrier_hz']:+7.1f} Hz" if not self.private else "") \
+                txt += f"  lock {o['lock']:.2f}  C/N0 {o.get('cn0_db', 0):4.1f}" + (f"  {o['carrier_hz']:+7.1f} Hz" if not self.private else "") \
                     + f"  {o['epochs'] / 1000:4.0f} s"
             if nv:
                 txt += f"  subframes {nv['n_subframes']:2d}" + ("  ephemeris" if nv.get("complete") else "")

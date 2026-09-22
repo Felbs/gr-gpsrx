@@ -36,7 +36,8 @@ EPH_VALID_S = 2.0 * 3600.0      # a broadcast ephemeris is fitted for +-2 h abou
 
 
 class pvt_solver(gr.basic_block):
-    def __init__(self, samp_rate=2.048e6, average=15, iono_file="", fix_file="", min_interval_s=1.0, eph_file=""):
+    def __init__(self, samp_rate=2.048e6, average=15, iono_file="", fix_file="", min_interval_s=1.0, eph_file="",
+                 smoothing=100, kf_vel_sd=4.0):
         gr.basic_block.__init__(self, name="gpsrx_pvt", in_sig=None, out_sig=None)
         self.fs = float(samp_rate)
         self.average = int(average)
@@ -55,6 +56,11 @@ class pvt_solver(gr.basic_block):
             except (ValueError, OSError):
                 self.eph_store = {}
         self.n_borrowed = 0
+        # carrier smoothing (Hatch) of the code pseudoranges, per satellite, M epochs; 0 = off
+        self.hatch_m = int(smoothing)
+        self.hatch = {}
+        # Kalman filter on the fixes (constant velocity); 0 = off
+        self.kf = pvt.PositionFilter(vel_sd=kf_vel_sd) if kf_vel_sd > 0 else None
         self.min_interval = float(min_interval_s)
         self.message_port_register_in(pmt.intern("obs"))
         self.message_port_register_in(pmt.intern("nav"))
@@ -110,9 +116,19 @@ class pvt_solver(gr.basic_block):
 
     def on_status(self, msg):
         d = pmt.to_python(msg)
-        if isinstance(d, dict) and "slot" in d and d.get("what") in ("lost", "idle"):
-            with self._lock:
-                self.obs.pop(int(d["slot"]), None)          # its last observable is not a measurement any more
+        if not isinstance(d, dict) or "slot" not in d:
+            return
+        with self._lock:
+            slot = int(d["slot"])
+            if d.get("what") in ("lost", "idle", "tracking"):
+                self.obs.pop(slot, None)                     # its last observable is not a measurement any more
+            if d.get("what") in ("tracking", "lost", "idle"):
+                # a new assignment restarts the channel's epoch count at zero: the old TIMING ANCHOR
+                # for this slot is dead (new counts against an old anchor put one satellite 24 s -
+                # 7e9 m - off on a drive leg, measured). The ephemeris is per satellite and stays.
+                for key in [k for k in self.nav if k[0] == slot]:
+                    self.nav[key].pop("anchor", None)
+                    self.hatch.pop(key[1], None)
 
     def on_obs(self, msg):
         d = pmt.to_python(msg)
@@ -138,7 +154,8 @@ class pvt_solver(gr.basic_block):
                 return
             self._last = now
             try:
-                fx = pvt.fix_from_channels(chans, self.fs, iono=self.iono)
+                fx = pvt.fix_from_channels(chans, self.fs, iono=self.iono,
+                                           hatch=self.hatch if self.hatch_m > 1 else None, hatch_m=self.hatch_m)
             except Exception as e:           # a bad ephemeris must not take the flowgraph down
                 fx = None
                 err = repr(e)
@@ -146,6 +163,11 @@ class pvt_solver(gr.basic_block):
                 self.message_port_pub(pmt.intern("fix"), pmt.to_pmt(dict(ok=False, n=len(chans))))
                 return
             self.n_fixes += 1
+            kf_out = None
+            if self.kf is not None and fx["altitude_plausible"] and fx["raim"]["pass"]:
+                xk, reset = self.kf.update(fx["epoch_sample"] / self.fs, fx["ecef"], np.array(fx.get("cov_ecef")))
+                kf_out = dict(ecef_kf=xk[:3].tolist(), llh_kf=list(pvt.ecef_to_llh(xk[:3])),
+                              vel_ecef=xk[3:].tolist(), speed_mps=float(np.linalg.norm(xk[3:])), kf_reset=bool(reset))
             if fx["altitude_plausible"]:
                 self.fixes.append(fx["ecef"])
                 self.fixes = self.fixes[-self.average:]
@@ -154,6 +176,7 @@ class pvt_solver(gr.basic_block):
                        altitude_plausible=fx["altitude_plausible"], residuals_m=fx["residuals_m"],
                        ecef=fx["ecef"], llh=list(fx["llh"]), clock_bias_s=fx["clock_bias_s"],
                        epoch_sample=fx["epoch_sample"], iono=self.iono_src, count=self.n_fixes,
+                       raim=fx["raim"], weights=fx["weights"], smoothed=fx.get("smoothed", {}), **(kf_out or {}),
                        borrowed=[c["prn"] for c in chans if c.get("borrowed")],
                        azel={str(p): list(v) for p, v in fx["azel"].items()})     # the sky, for the panel
             if P is not None and len(P) >= 3:
@@ -166,8 +189,9 @@ class pvt_solver(gr.basic_block):
             if self.fix_file:
                 # the latest fix, plus every fix so far (quality and ECEF): a run's history is
                 # what tells a good stretch from a bad one afterwards
-                self.history.append(dict(count=self.n_fixes, n=fx["n"], prns=fx["prns"], rms_m=fx["rms_m"],
+                self.history.append(dict(count=self.n_fixes, n=fx["n"], prns=fx["prns"], rms_m=fx["rms_m"], excluded=fx["raim"]["excluded"],
                                          pdop=fx["pdop"], ecef=fx["ecef"], t_stream_s=fx["epoch_sample"] / self.fs,
+                                         ecef_kf=(kf_out or {}).get("ecef_kf"), speed_mps=(kf_out or {}).get("speed_mps"),
                                          altitude_plausible=fx["altitude_plausible"]))
                 os.makedirs(os.path.dirname(os.path.abspath(self.fix_file)), exist_ok=True)
                 with open(self.fix_file, "w") as fh:

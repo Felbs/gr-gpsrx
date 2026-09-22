@@ -154,6 +154,8 @@ blocks:
     hold: 'False'
     engine: '''cpp'''
     eph_file: '""'
+    smoothing: '100'
+    kf_vel_sd: '4.0'
     comment: live needs the C++ Channel (util/build_win.cmd, or cmake on Linux)
   states:
     bus_sink: false

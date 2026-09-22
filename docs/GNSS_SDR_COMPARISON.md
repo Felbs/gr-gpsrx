@@ -116,3 +116,36 @@ the 1 ms loop jitters +-5-10 Hz and a 20 ms window pulls in only ~10 Hz.
 8 Hz was too narrow for the car (a +4.2 kHz satellite dropped to lock 0.56); 20 Hz gained nothing
 over 15; so 15 Hz is the default and a static user sets 5. Remaining gap to gnss-sdr's tracking:
 its 3rd-order PLL filter. Next on the list: C/N0, weighted least squares, RAIM.
+
+## Borrows 3-7, done (same day)
+
+**C/N0** (moment method over 20 prompts, both engines; reads 1-2 dB low at high C/N0 as the
+method does), on the panel and in every observable. **Weighted least squares** (sigma^2 =
+sigma0^2 (1 + 1/sin^2 el) x 10^((42 - C/N0)/10)), **RAIM/FDE** (chi-square at 99% on the weighted
+residuals; with six satellites, drop one at a time and keep the consistent subset; a synthetic
+300 m fault is named and excluded, test), **carrier-phase observable + Hatch smoothing** (M = 100,
+per satellite, restarted on a slip or a re-assignment), and a **constant-velocity Kalman filter**
+on the fixes (`ecef_kf`, `speed_mps`).
+
+Two things found on the way. (1) A satellite lost and re-acquired into the same slot restarts its
+epoch count, and the solver was keeping the OLD timing anchor for that slot: new counts against
+an old anchor put a satellite 24 s (7e9 m) off on a drive leg. The anchor now dies with the
+assignment; the ephemeris stays. (2) The Hatch filter as written in the books made the static
+scatter WORSE (28 m): the LO synthesizer sits a few Hz off nominal, so the carrier's rate differs
+from the code's by a constant common to every satellite (-3.1 m/s, the same on all seven); the
+moment one satellite's filter restarted, the common lag the others carried became a differential
+error. The median code-minus-carrier rate across satellites is now removed each epoch.
+
+| capture / measure | before today | two-stage | + Hatch (+WLS, RAIM) | + Kalman (4 m/s/sqrt s) | gnss-sdr tuned | gnss-sdr + KF |
+|---|---|---|---|---|---|---|
+| attic 240 s, 15-epoch scatter | 11.4 m | 9.7 m | **1.1-1.7 m** | 1.2 m (0.7 at 0.05) | 7.6 m | 1.6 m |
+| attic, scatter over the run | 14.2 m | 12.5 m | **4.4-8.0 m** | - | 15.5 m | 5.4 m |
+| attic, mean vs the live reference | 7.3 m | 6.8 m | **4.2-5.0 m** | - | 3.6 m | 4.6 m |
+| drive 52 mph leg, median rms | 0.9 m | 0.7 m | 0.5 m | KF within 1.4 m of raw | - | - |
+| drive leg that had rms 38 m | 38 m | - | **0.4-1.2 m** (the anchor fix) | - | - | - |
+
+The receiver's raw, unfiltered fixes are now steadier than gnss-sdr's filtered ones on this
+capture, and its filtered ones match. The Kalman filter's velocity noise is the one knob that
+depends on the platform: 4 for a car (lag under 2 m at 52 mph), 0.05 for a fixed antenna
+(where the Hatch filter has already done the work). Not done from the list: the FLL (no need
+seen yet) and their 3rd-order PLL filter.

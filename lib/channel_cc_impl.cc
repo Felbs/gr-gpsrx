@@ -110,6 +110,7 @@ std::complex<double> tracker::step(const std::complex<float>* x, int n)
     carrier_phase = std::fmod(carrier_phase + 2.0 * M_PI * carrier_hz * dt, 2.0 * M_PI);
     if (carrier_phase < 0)
         carrier_phase += 2.0 * M_PI;
+    carrier_cycles += carrier_hz * dt;
     code_phase = std::fmod(code_phase + n * cps, (double)CODE_LEN);
     samples_in += n;
     epochs += 1;
@@ -118,6 +119,19 @@ std::complex<double> tracker::step(const std::complex<float>* x, int n)
     const double p = ip * ip + qp * qp;
     const double li = p > 0 ? (ip * ip - qp * qp) / p : 0.0;
     lock = 0.98 * lock + 0.02 * li;
+    // C/N0, moment method over 20 prompts (track.py)
+    m2_ += p;
+    m4_ += p * p;
+    if (++mn_ == 20) {
+        const double m2 = m2_ / 20, m4 = m4_ / 20;
+        const double pd = std::sqrt(std::max(2 * m2 * m2 - m4, 0.0)), pn = m2 - pd;
+        if (pd > 0 && pn > 0) {
+            const double cn0 = 10 * std::log10(pd / pn / (CODE_LEN / CODE_RATE));
+            cn0_db = cn0_db == 0.0 ? cn0 : 0.9 * cn0_db + 0.1 * cn0;
+        }
+        m2_ = m4_ = 0.0;
+        mn_ = 0;
+    }
     // stage 1: bit sync (where, mod 20, does the prompt's sign flip?) and the averaged frequency
     if (bit_offset < 0 && coh_ > 1) {
         f_avg_ = have_f_avg_ ? 0.99 * f_avg_ + 0.01 * carrier_hz : carrier_hz;
@@ -342,6 +356,8 @@ int channel_cc_impl::general_work(int noutput_items,
             d = pmt::dict_add(d, pmt::mp("samples_in"), pmt::from_long((long)eng_->samples_in));
             d = pmt::dict_add(d, pmt::mp("epoch_sample"), pmt::from_double((double)t0_abs_ + eng_->epoch_sample()));
             d = pmt::dict_add(d, pmt::mp("lock"), pmt::from_double(eng_->lock));
+            d = pmt::dict_add(d, pmt::mp("cn0_db"), pmt::from_double(eng_->cn0_db));
+            d = pmt::dict_add(d, pmt::mp("carrier_cycles"), pmt::from_double(eng_->epoch_cycles()));
             d = pmt::dict_add(d, pmt::mp("sample_abs"), pmt::from_long((long)(t0_abs_ + eng_->samples_in)));
             d = pmt::dict_add(d, pmt::mp("slot"), pmt::from_long(slot_));
             message_port_pub(pmt::mp("obs"), d);

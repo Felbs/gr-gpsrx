@@ -27,6 +27,8 @@ with no ambiguity at all. The three assembly laws numpy-gps paid for still hold:
 
 Nothing here prints or stores a position. The `fix` dict carries ECEF metres and the caller
 decides what to do with them; the panel shows counts, rms, DOP and a plausible-altitude flag."""
+import os
+
 import numpy as np
 
 MU = 3.986005e14
@@ -146,7 +148,8 @@ def refer_to_common_sample(entries, fs):
     for e in entries:
         dt_rx = (s_ref - e["epoch_sample"]) / fs
         drift = 1.0 + e.get("carrier_hz", 0.0) / 1575.42e6
-        out.append(dict(e, t_sv=e["t_sv"] + dt_rx * drift))
+        out.append(dict(e, t_sv=e["t_sv"] + dt_rx * drift,
+                        carrier_cycles=e.get("carrier_cycles", 0.0) + e.get("carrier_hz", 0.0) * dt_rx))
     return s_ref, out
 
 
@@ -172,18 +175,29 @@ def solve_ls(sats, weights=None):
     return x, A
 
 
-def solve(entries, iono=None, weights=None):
-    """entries: [{prn, eph, t_sv}] all referred to one receive instant (SV clock transmit
-    times). Returns a fix dict: ecef, llh, rms_m, dop, n, residuals, clock_bias_s, t_rx."""
-    prs = []
-    for e in entries:
-        t_gps = e["t_sv"] - clock_corr(e["eph"], e["t_sv"])              # law 1: correct AFTER assembly
-        prs.append((e["prn"], e["eph"], t_gps))
-    t_rx = max(t for _, _, t in prs) + 0.075
+# chi-square 99% quantiles by degrees of freedom, for RAIM (no scipy in the engine)
+CHI2_99 = {1: 6.63, 2: 9.21, 3: 11.34, 4: 13.28, 5: 15.09, 6: 16.81, 7: 18.48, 8: 20.09, 9: 21.67, 10: 23.21}
+SIGMA0_M = 3.0                  # pseudorange noise at zenith and strong signal, metres
+
+
+def measurement_variance(el, cn0_db):
+    """The weight of one pseudorange, RTKLIB's shape: sigma^2 = sigma0^2 (1 + 1/sin^2 el), so a
+    satellite at 10 degrees counts a thirtieth of one at zenith (more air, more multipath),
+    de-weighted further by 10^((42 - C/N0)/10) below 42 dB-Hz (a 32 dB-Hz signal counts a tenth)."""
+    se = max(np.sin(el), 0.05)
+    v = SIGMA0_M ** 2 * (1.0 + 1.0 / (se * se))
+    if cn0_db and cn0_db > 0:
+        v *= 10 ** (max(0.0, 42.0 - cn0_db) / 10.0)
+    return v
+
+
+def _solve_once(prs, iono, t_rx0, weighted=True):
+    t_rx = t_rx0
     x = np.zeros(4)
+    weights = None
     for it in range(8):
-        sats = []
-        for prn, eph, t_tx in prs:
+        sats, vars_ = [], []
+        for prn, eph, t_tx, cn0 in prs:
             sp = sat_ecef(eph, t_tx)
             tau = max(t_rx - t_tx, 0.0)
             th = OMEGA_E * tau                                            # Sagnac
@@ -193,6 +207,7 @@ def solve(entries, iono=None, weights=None):
             # centre) and the satellite is above the horizon; a Klobuchar term evaluated at a
             # nonsense elevation returned NaN and the least squares then failed to converge
             rn = np.linalg.norm(x[:3])
+            el = None
             if it >= 2 and 6.2e6 < rn < 6.6e6:
                 az, el = az_el(x[:3], rot @ sp)
                 if el > 0.02:
@@ -203,26 +218,116 @@ def solve(entries, iono=None, weights=None):
                         if np.isfinite(d_i):
                             pr -= d_i
             sats.append((rot @ sp, pr))
+            vars_.append(measurement_variance(el if el is not None else np.pi / 4, cn0))
+        # weights only once the elevations are known (the first passes are unweighted)
+        weights = [1.0 / v for v in vars_] if (weighted and it >= 3) else None
         x, A = solve_ls(sats, weights)
         t_rx -= x[3] / C
     res = np.array([pr - (np.linalg.norm(x[:3] - sp) + x[3]) for sp, pr in sats])
+    w = np.array(weights) if weights is not None else np.ones(len(sats))
+    return x, A, sats, res, w, t_rx
+
+
+def solve(entries, iono=None, weights=None, raim=True):
+    """entries: [{prn, eph, t_sv, cn0_db?}] all referred to one receive instant (SV clock transmit
+    times). Weighted least squares (elevation + C/N0), then RAIM: a chi-square test on the
+    weighted residuals; if it fails with six or more satellites, drop one at a time and keep the
+    solution with the smallest normalised residual (gnss-sdr / RTKLIB's fault detection and
+    exclusion). Returns a fix dict: ecef, llh, rms_m, pdop, n, residuals, clock_bias_s, t_rx,
+    raim (test statistic, threshold, excluded PRN)."""
+    prs = []
+    for e in entries:
+        t_gps = e["t_sv"] - clock_corr(e["eph"], e["t_sv"])              # law 1: correct AFTER assembly
+        prs.append((e["prn"], e["eph"], t_gps, float(e.get("cn0_db", 0.0) or 0.0)))
+    t_rx0 = max(t for _, _, t, _ in prs) + 0.075
+    weighted = weights is None or weights is not False
+
+    def run(subset):
+        x, A, sats, res, w, t_rx = _solve_once(subset, iono, t_rx0, weighted)
+        dof = len(subset) - 4
+        stat = float(np.sum(w * res * res)) if dof > 0 else 0.0
+        return dict(x=x, A=A, sats=sats, res=res, w=w, t_rx=t_rx, stat=stat, dof=dof, prs=subset)
+
+    best = run(prs)
+    excluded = None
+    thr = CHI2_99.get(best["dof"], 6.63 + 2.3 * max(best["dof"] - 1, 0))
+    raim_pass = best["dof"] <= 0 or best["stat"] <= thr
+    if raim and not raim_pass and len(prs) >= 6:
+        cands = []
+        for k in range(len(prs)):
+            sub = prs[:k] + prs[k + 1:]
+            r = run(sub)
+            cands.append((r["stat"] / max(r["dof"], 1), prs[k][0], r))
+        cands.sort(key=lambda c: c[0])
+        norm, prn_out, r = cands[0]
+        thr_sub = CHI2_99.get(r["dof"], 6.63 + 2.3 * max(r["dof"] - 1, 0))
+        if r["stat"] <= thr_sub:                      # excluding this one makes the rest consistent
+            best, excluded, raim_pass = r, prn_out, True
+    x, A, sats, res, w, t_rx, prs = best["x"], best["A"], best["sats"], best["res"], best["w"], best["t_rx"], best["prs"]
     lat, lon, h = ecef_to_llh(x[:3])
     azel = {}
-    for (prn, _, _), (sp, _) in zip(prs, sats):
+    for (prn, _, _, _), (sp, _) in zip(prs, sats):
         az, el = az_el(x[:3], sp)
         azel[prn] = (float(np.degrees(az)) % 360.0, float(np.degrees(el)))
     try:
-        Q = np.linalg.inv(A.T @ A)
-        pdop = float(np.sqrt(np.trace(Q[:3, :3])))
+        Aw = A * np.sqrt(w)[:, None]
+        Q = np.linalg.inv(Aw.T @ Aw) * float(np.mean(1.0 / w))      # in metres^2, comparable to unweighted
+        pdop = float(np.sqrt(np.trace(np.linalg.inv(A.T @ A)[:3, :3])))
+        cov = Q[:3, :3]
     except np.linalg.LinAlgError:
-        pdop = float("nan")
+        pdop, cov = float("nan"), np.full((3, 3), np.nan)
     return {"ecef": x[:3].tolist(), "llh": (float(lat), float(lon), float(h)), "clock_bias_s": float(x[3] / C),
             "t_rx": float(t_rx), "rms_m": float(np.sqrt(np.mean(res ** 2))), "pdop": pdop, "n": len(sats),
-            "residuals_m": res.tolist(), "prns": [p for p, _, _ in prs], "azel": azel,
+            "residuals_m": res.tolist(), "prns": [p for p, _, _, _ in prs], "azel": azel,
+            "weights": (w / w.max()).tolist(), "cov_ecef": cov.tolist(),
+            "raim": {"stat": best["stat"], "threshold": thr, "pass": bool(raim_pass), "excluded": excluded},
             "altitude_plausible": bool(-500 < h < 9000)}
 
 
-def fix_from_channels(channels, fs, iono=None):
+LAMBDA_L1 = C / 1575.42e6           # 0.1903 m per carrier cycle
+
+
+def hatch_smooth(entries, state, fs, s_ref, M=100, slip_m=30.0):
+    """Carrier smoothing of the code pseudorange (Hatch 1982; gnss-sdr's enable_carrier_smoothing):
+    the code range is noisy but unbiased, the carrier's CHANGE between epochs is exact to
+    millimetres. Blend: pr_s = pr/n + (n-1)/n (pr_s_prev + delta_carrier), n growing to M.
+
+    One correction the textbook omits and this radio needs: the LO synthesizer sits a few Hz off
+    its nominal, so the carrier's rate differs from the code's by a constant that is COMMON to
+    every satellite (-3.1 m/s here, measured: the same on all seven). Harmless while every
+    filter has the same age; when one satellite restarts it becomes a differential error of
+    tens of metres (28 m scatter, measured). So the median code-minus-carrier rate across the
+    satellites is removed from the carrier increment each epoch: what is left is per-satellite
+    noise, which is what the filter is for. A jump of more than slip_m between the code range
+    and the corrected prediction is a cycle slip or a re-assignment: that satellite restarts.
+    `state` is per PRN and persists across epochs; entries need t_sv (slid to s_ref),
+    carrier_cycles (slid) and prn."""
+    t_ref = s_ref / fs
+    raw = []
+    for e in entries:
+        pr = C * (t_ref - e["t_sv"])                          # metres, with the receiver clock in it
+        phase_m = -LAMBDA_L1 * e["carrier_cycles"]           # positive Doppler = closing = range falling
+        st = state.get(e["prn"])
+        d = (pr - st["pr_raw"]) - (phase_m - st["phase_m"]) if st is not None else None
+        raw.append((e, pr, phase_m, st, d))
+    ds = [d for _, _, _, _, d in raw if d is not None and abs(d) < 3 * slip_m]
+    common = float(np.median(ds)) if len(ds) >= 3 else 0.0
+    if os.environ.get("GPSRX_HATCH_DUMP"):
+        with open(os.environ["GPSRX_HATCH_DUMP"], "a") as fh:
+            fh.write("%.3f common %+.3f " % (t_ref, common) + " ".join("%d:%+.2f" % (e["prn"], d) for e, _, _, _, d in raw if d is not None) + chr(10))
+    out = []
+    for e, pr, phase_m, st, d in raw:
+        if st is not None and d is not None and abs(d - common) < slip_m:
+            n = min(st["n"] + 1, M)
+            pr_s = pr / n + (n - 1) / n * (st["pr_s"] + phase_m - st["phase_m"] + common)
+        else:
+            n, pr_s = 1, pr
+        state[e["prn"]] = {"n": n, "pr_s": pr_s, "phase_m": phase_m, "pr_raw": pr}
+        out.append(dict(e, t_sv=t_ref - pr_s / C, smoothed=n))
+    return out
+
+
+def fix_from_channels(channels, fs, iono=None, hatch=None, hatch_m=100):
     """channels: list of {prn, eph, anchor:(epochs, tow), obs:{epochs, code_phase, sample_abs,
     carrier_hz}}. The whole path: transmit times, common instant, solve."""
     entries = []
@@ -232,10 +337,63 @@ def fix_from_channels(channels, fs, iono=None):
         t_sv = transmit_time_sv(c["obs"], c["anchor"], fs)
         o = c["obs"]
         entries.append(dict(prn=c["prn"], eph=c["eph"], t_sv=t_sv, carrier_hz=o.get("carrier_hz", 0.0),
-                            epoch_sample=o.get("epoch_sample", o.get("sample_abs"))))
+                            epoch_sample=o.get("epoch_sample", o.get("sample_abs")), cn0_db=o.get("cn0_db", 0.0),
+                            carrier_cycles=o.get("carrier_cycles", 0.0)))
     if len(entries) < 4:
         return None
     s_ref, entries = refer_to_common_sample(entries, fs)
+    if hatch is not None and hatch_m > 1 and all("carrier_cycles" in e for e in entries):
+        entries = hatch_smooth(entries, hatch, fs, s_ref, M=hatch_m)
     fx = solve(entries, iono=iono)
+    fx["smoothed"] = {e["prn"]: e.get("smoothed", 0) for e in entries}
     fx["epoch_sample"] = float(s_ref)
     return fx
+
+
+class PositionFilter:
+    """Kalman filter on the position solution (gnss-sdr's enable_pvt_kf): state [x y z vx vy vz]
+    in ECEF, constant-velocity model, the least-squares fix as the measurement with its own
+    covariance. vel_sd is the process noise on velocity per sqrt(second): ~0.05 for a fixed
+    antenna, ~1 for a car. The filter is reset when a fix is more than `reset_m` from its
+    prediction (a jump the model cannot explain: a re-acquisition, a bad epoch)."""
+
+    def __init__(self, vel_sd=0.5, pos_sd=0.05, meas_sd_min=1.0, reset_m=200.0):
+        self.q_v, self.q_p = float(vel_sd), float(pos_sd)
+        self.meas_min = float(meas_sd_min)
+        self.reset_m = float(reset_m)
+        self.x = None
+        self.P = None
+        self.t = None
+
+    def update(self, t, ecef, cov=None):
+        z = np.asarray(ecef, float)
+        R = np.asarray(cov, float) if cov is not None and np.all(np.isfinite(cov)) else np.eye(3) * 100.0
+        R = R + np.eye(3) * self.meas_min ** 2
+        if self.x is None or self.t is None or t < self.t:
+            self.x = np.concatenate([z, np.zeros(3)])
+            self.P = np.diag([100.0] * 3 + [10.0] * 3)
+            self.t = t
+            return self.x.copy(), False
+        dt = max(t - self.t, 1e-3)
+        F = np.eye(6)
+        F[:3, 3:] = np.eye(3) * dt
+        Q = np.zeros((6, 6))
+        Q[:3, :3] = np.eye(3) * (self.q_p ** 2 * dt + self.q_v ** 2 * dt ** 3 / 3)
+        Q[:3, 3:] = Q[3:, :3] = np.eye(3) * (self.q_v ** 2 * dt ** 2 / 2)
+        Q[3:, 3:] = np.eye(3) * (self.q_v ** 2 * dt)
+        xp = F @ self.x
+        Pp = F @ self.P @ F.T + Q
+        H = np.zeros((3, 6))
+        H[:, :3] = np.eye(3)
+        y = z - H @ xp
+        if np.linalg.norm(y) > self.reset_m:
+            self.x = np.concatenate([z, np.zeros(3)])
+            self.P = np.diag([100.0] * 3 + [10.0] * 3)
+            self.t = t
+            return self.x.copy(), True
+        S = H @ Pp @ H.T + R
+        K = Pp @ H.T @ np.linalg.inv(S)
+        self.x = xp + K @ y
+        self.P = (np.eye(6) - K @ H) @ Pp
+        self.t = t
+        return self.x.copy(), False

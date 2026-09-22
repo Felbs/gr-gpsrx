@@ -41,6 +41,8 @@ def main():
     ap.add_argument("--pll-narrow", type=float, default=15.0, help="PLL bandwidth after bit sync (Hz); 5 static, 15-20 moving; 0 = single stage")
     ap.add_argument("--dll-narrow", type=float, default=0.5)
     ap.add_argument("--coherent-ms", type=int, default=20)
+    ap.add_argument("--smoothing", type=int, default=100, help="Hatch carrier smoothing window (epochs); 0 = off")
+    ap.add_argument("--kf-vel-sd", type=float, default=4.0, help="Kalman PVT velocity process noise, m/s/sqrt(s): 0.05 static, 1 car, 0 = off")
     a = ap.parse_args()
 
     tb = gr.top_block()
@@ -49,7 +51,8 @@ def main():
     to_c = blocks.interleaved_short_to_complex(False, False, 32768.0)
     rx = gpsrx.receiver(a.rate, n_channels=a.channels, interval_s=a.interval,
                         iono_file=a.iono_file, fix_file=a.fix_file, hold=True, eph_file=a.eph_file,
-                        pll_bw_narrow=a.pll_narrow, dll_bw_narrow=a.dll_narrow, coherent_ms=a.coherent_ms)      # replay: stop time while searching
+                        pll_bw_narrow=a.pll_narrow, dll_bw_narrow=a.dll_narrow, coherent_ms=a.coherent_ms,
+                        smoothing=a.smoothing, kf_vel_sd=a.kf_vel_sd)      # replay: stop time while searching
     st = gpsrx.status_sink(every_s=2.0, log_file=a.log)
     tb.connect(src, to_c, rx)
     for port in ("sky", "status", "obs", "nav", "fix"):

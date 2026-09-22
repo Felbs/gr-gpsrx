@@ -100,7 +100,7 @@ class status_sink(gr.basic_block):
                     continue
                 txt = f" slot {s}: PRN{c['prn']:2d}"
                 if o:
-                    txt += f"  lock {o['lock']:.2f}  Doppler {o['carrier_hz']:+7.1f} Hz  {o['epochs'] / 1000:5.0f} s"
+                    txt += f"  lock {o['lock']:.2f}  C/N0 {o.get('cn0_db', 0):4.1f}  Doppler {o['carrier_hz']:+7.1f} Hz  {o['epochs'] / 1000:5.0f} s"
                 if nv:
                     txt += f"  subframes {nv['n_subframes']}" + ("  EPH" if nv.get("complete") else "")
                     if nv.get("rejected"):
