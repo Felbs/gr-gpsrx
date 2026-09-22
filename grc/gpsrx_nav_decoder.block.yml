@@ -1,0 +1,22 @@
+id: gpsrx_nav_decoder
+label: GPS Nav Decoder
+category: '[gpsrx]'
+flags: [python]
+documentation: 'A Channel''s prompt stream in (1 kHz); the navigation message out. Bit sync (where the
+  20
+
+  code periods of each bit begin), words, parity in either polarity, subframes 1-5,
+
+  ephemeris, Klobuchar terms from subframe 4 page 18 - and the timing anchor: which code
+
+  period a subframe began on and the TOW it carries. Publishes on ''nav'' after every accepted
+
+  subframe. Slot: must match the Channel it is wired to.'
+templates: {imports: from gnuradio import gpsrx, make: 'gpsrx.nav_decoder(slot=${slot})'}
+parameters:
+- {id: slot, label: Slot, dtype: int, default: '0'}
+inputs:
+- {domain: stream, dtype: complex}
+outputs:
+- {domain: message, id: nav}
+file_format: 1

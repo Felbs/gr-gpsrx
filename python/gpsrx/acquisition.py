@@ -31,7 +31,7 @@ from . import acquire
 
 class acquisition(gr.sync_block):
     def __init__(self, samp_rate=2.048e6, n_slots=8, snapshot_ms=110, interval_s=20.0, threshold=2.5,
-                 n_noncoh=100, prns=None, hold=False):
+                 n_noncoh=100, prns=None, hold=False, settle_s=0.5):
         gr.sync_block.__init__(self, name="gpsrx_acquisition", in_sig=[np.complex64], out_sig=None)
         self.fs = float(samp_rate)
         # hold: stop the stream while a search runs. For REPLAY: a file source runs as fast as its
@@ -52,7 +52,7 @@ class acquisition(gr.sync_block):
         self._lock = threading.Lock()
         self.slots = {s: 0 for s in range(self.n_slots)}          # slot -> prn (0 = free)
         self._buf, self._buf_start, self._filled = None, 0, 0
-        self._next_at = 0.0                                        # stream time (s) of the next snapshot
+        self._next_at = float(settle_s)                            # stream time (s) of the next snapshot: a tuner is still settling at 0
         self._worker = None
         self.n_searches = 0
 

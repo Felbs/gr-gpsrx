@@ -207,6 +207,10 @@ def solve(entries, iono=None, weights=None):
         t_rx -= x[3] / C
     res = np.array([pr - (np.linalg.norm(x[:3] - sp) + x[3]) for sp, pr in sats])
     lat, lon, h = ecef_to_llh(x[:3])
+    azel = {}
+    for (prn, _, _), (sp, _) in zip(prs, sats):
+        az, el = az_el(x[:3], sp)
+        azel[prn] = (float(np.degrees(az)) % 360.0, float(np.degrees(el)))
     try:
         Q = np.linalg.inv(A.T @ A)
         pdop = float(np.sqrt(np.trace(Q[:3, :3])))
@@ -214,7 +218,7 @@ def solve(entries, iono=None, weights=None):
         pdop = float("nan")
     return {"ecef": x[:3].tolist(), "llh": (float(lat), float(lon), float(h)), "clock_bias_s": float(x[3] / C),
             "t_rx": float(t_rx), "rms_m": float(np.sqrt(np.mean(res ** 2))), "pdop": pdop, "n": len(sats),
-            "residuals_m": res.tolist(), "prns": [p for p, _, _ in prs],
+            "residuals_m": res.tolist(), "prns": [p for p, _, _ in prs], "azel": azel,
             "altitude_plausible": bool(-500 < h < 9000)}
 
 

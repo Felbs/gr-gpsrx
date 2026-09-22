@@ -1,0 +1,23 @@
+id: gpsrx_sky_panel
+label: GPS Sky Panel
+category: '[gpsrx]'
+flags: [python]
+documentation: 'Qt panel: the sky as a polar plot with every tracked satellite where the fix puts it
+
+  (coloured by lock; on a Doppler ring before the first fix), one line per channel, and the
+
+  fix''s quality - satellites, residual rms, PDOP, scatter. It never shows the position.
+
+  Optional: the receiver runs without it. Docks like any QT GUI widget (GUI Hint).'
+templates: {imports: from gnuradio import gpsrx, make: "<%\n    win = '_%s_win' % id\n%>    ${win} = gpsrx.sky_panel(label=${label},\
+    \ parent=self)\nself.${id} = ${win}\n${gui_hint() % win}"}
+parameters:
+- {id: label, label: Label, dtype: string, default: GPS receiver}
+- {id: gui_hint, label: GUI Hint, dtype: gui_hint, hide: part}
+inputs:
+- {domain: message, id: sky, optional: true}
+- {domain: message, id: status, optional: true}
+- {domain: message, id: obs, optional: true}
+- {domain: message, id: nav, optional: true}
+- {domain: message, id: fix, optional: true}
+file_format: 1

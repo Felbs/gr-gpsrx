@@ -1,0 +1,22 @@
+id: gpsrx_status
+label: GPS Status
+category: '[gpsrx]'
+flags: [python]
+documentation: 'The receiver''s state as text, one table every Every seconds: satellites per slot, lock,
+
+  Doppler, seconds tracked, subframes, and the fix''s quality (satellites, residual rms, PDOP,
+
+  scatter). It never prints the position. Connect whichever of ''sky'', ''status'', ''obs'', ''nav'',
+
+  ''fix'' you have. Log file: append the tables there.'
+templates: {imports: from gnuradio import gpsrx, make: 'gpsrx.status_sink(every_s=${every_s}, log_file=${log_file})'}
+parameters:
+- {id: every_s, label: Every (s), dtype: real, default: '2.0'}
+- {id: log_file, label: Log file, dtype: file_save, default: ''''''}
+inputs:
+- {domain: message, id: sky, optional: true}
+- {domain: message, id: status, optional: true}
+- {domain: message, id: obs, optional: true}
+- {domain: message, id: nav, optional: true}
+- {domain: message, id: fix, optional: true}
+file_format: 1

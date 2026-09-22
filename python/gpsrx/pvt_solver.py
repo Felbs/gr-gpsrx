@@ -102,7 +102,8 @@ class pvt_solver(gr.basic_block):
             out = dict(ok=True, n=fx["n"], prns=fx["prns"], rms_m=fx["rms_m"], pdop=fx["pdop"],
                        altitude_plausible=fx["altitude_plausible"], residuals_m=fx["residuals_m"],
                        ecef=fx["ecef"], llh=list(fx["llh"]), clock_bias_s=fx["clock_bias_s"],
-                       epoch_sample=fx["epoch_sample"], iono=self.iono_src, count=self.n_fixes)
+                       epoch_sample=fx["epoch_sample"], iono=self.iono_src, count=self.n_fixes,
+                       azel={str(p): list(v) for p, v in fx["azel"].items()})     # the sky, for the panel
             if P is not None and len(P) >= 3:
                 mean = P.mean(axis=0)
                 out["ecef_mean"] = mean.tolist()

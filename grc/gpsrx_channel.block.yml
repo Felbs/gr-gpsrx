@@ -1,0 +1,38 @@
+id: gpsrx_channel
+label: GPS Channel
+category: '[gpsrx]'
+flags: [python]
+documentation: 'One satellite''s tracking loop. Complex baseband in; the prompt correlation out, one item
+  per
+
+  code period (1 kHz complex: the sign of the real part is the 50 bit/s navigation data).
+
+  Carrier wipe-off (NCO), early/prompt/late C/A code correlators, Costas PLL (atan(Q/I),
+
+  blind to the data flips), early-late DLL, carrier-aided code rate. Consumes exactly one
+
+  code period per step, so its period count IS the satellite''s clock; ''obs'' reports once a
+
+  second the period count and the code epoch''s arrival as a fractional input sample - the
+
+  two numbers a pseudorange is made of.
+
+  Idle until ''assign'' names its slot (from the Acquisition block). ''status'' says tracking /
+
+  lost / idle. Slot: this channel''s number; Acquisition assigns by it.'
+templates: {imports: from gnuradio import gpsrx, make: 'gpsrx.channel(samp_rate=${samp_rate}, slot=${slot},
+    pll_bw=${pll_bw}, dll_bw=${dll_bw}, obs_every_ms=${obs_every_ms})'}
+parameters:
+- {id: samp_rate, label: Sample rate, dtype: real, default: samp_rate}
+- {id: slot, label: Slot, dtype: int, default: '0'}
+- {id: pll_bw, label: PLL bandwidth (Hz), dtype: real, default: '18.0'}
+- {id: dll_bw, label: DLL bandwidth (Hz), dtype: real, default: '2.0'}
+- {id: obs_every_ms, label: Observable every (ms), dtype: int, default: '1000', hide: part}
+inputs:
+- {domain: stream, dtype: complex}
+- {domain: message, id: assign}
+outputs:
+- {domain: stream, dtype: complex}
+- {domain: message, id: obs}
+- {domain: message, id: status, optional: true}
+file_format: 1

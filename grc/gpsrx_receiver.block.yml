@@ -1,0 +1,35 @@
+id: gpsrx_receiver
+label: GPS Receiver
+category: '[gpsrx]'
+flags: [python]
+documentation: 'The whole receiver in one block: Acquisition -> N x (Channel -> Nav Decoder) -> PVT.
+
+  Complex baseband in; ''fix'' out, plus every inner message port (''sky'', ''status'', ''obs'',
+
+  ''nav'') for a Status block or a Message Debug. The same wiring laid out block by block is
+
+  examples/gpsrx_canvas.grc. Hold: file replay only.'
+templates: {imports: from gnuradio import gpsrx, make: 'gpsrx.receiver(samp_rate=${samp_rate}, n_channels=${n_channels},
+    interval_s=${interval_s}, threshold=${threshold}, iono_file=${iono_file}, fix_file=${fix_file}, hold=${hold})'}
+parameters:
+- {id: samp_rate, label: Sample rate, dtype: real, default: samp_rate}
+- {id: n_channels, label: Channels, dtype: int, default: '8'}
+- {id: interval_s, label: Search interval (s), dtype: real, default: '20.0'}
+- {id: threshold, label: Threshold, dtype: real, default: '2.5'}
+- {id: iono_file, label: Iono file, dtype: file_open, default: ''''''}
+- {id: fix_file, label: Fix file, dtype: file_save, default: ''''''}
+- id: hold
+  label: Hold the stream while searching
+  dtype: enum
+  default: 'False'
+  options: ['False', 'True']
+  option_labels: [No (radio), Yes (file replay)]
+inputs:
+- {domain: stream, dtype: complex}
+outputs:
+- {domain: message, id: sky, optional: true}
+- {domain: message, id: status, optional: true}
+- {domain: message, id: obs, optional: true}
+- {domain: message, id: nav, optional: true}
+- {domain: message, id: fix, optional: true}
+file_format: 1

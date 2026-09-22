@@ -1,0 +1,33 @@
+id: gpsrx_pvt
+label: GPS PVT
+category: '[gpsrx]'
+flags: [python]
+documentation: 'Every Channel''s ''obs'' and every Nav Decoder''s ''nav'' in; the position out on ''fix'',
+  at most
+
+  once a second, when four or more channels have an observable, an ephemeris and a timing
+
+  anchor. Transmit time = anchor TOW + period count (no millisecond ambiguity); all channels
+
+  referred to one receive sample; SV clock, Sagnac, troposphere and ionosphere; least squares.
+
+  The ''fix'' message carries n, prns, rms_m, pdop, altitude_plausible, ecef, llh and a running
+
+  mean/scatter over the last Average fixes. Fix file: optional path to keep the latest fix
+
+  (keep it out of any repository). Iono file: an archived broadcast to use until a channel
+
+  decodes page 18.'
+templates: {imports: from gnuradio import gpsrx, make: 'gpsrx.pvt_solver(samp_rate=${samp_rate}, average=${average},
+    iono_file=${iono_file}, fix_file=${fix_file})'}
+parameters:
+- {id: samp_rate, label: Sample rate, dtype: real, default: samp_rate}
+- {id: average, label: Average fixes, dtype: int, default: '15'}
+- {id: iono_file, label: Iono file, dtype: file_open, default: ''''''}
+- {id: fix_file, label: Fix file, dtype: file_save, default: ''''''}
+inputs:
+- {domain: message, id: obs}
+- {domain: message, id: nav}
+outputs:
+- {domain: message, id: fix}
+file_format: 1

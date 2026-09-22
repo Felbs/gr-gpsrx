@@ -18,3 +18,8 @@ try:
     from .status_sink import status_sink
 except ImportError:                    # gnuradio not installed: the engines still work
     pass
+
+try:
+    from .sky_panel import sky_panel   # needs PyQt5; the rest of the module does not
+except ImportError:
+    pass

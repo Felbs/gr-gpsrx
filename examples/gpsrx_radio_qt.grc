@@ -1,0 +1,224 @@
+options:
+  parameters:
+    id: gpsrx_radio_qt
+    title: 'GPS receiver: radio, with the sky panel'
+    author: gr-gpsrx
+    generate_options: qt_gui
+    output_language: python
+    category: '[GRC Hier Blocks]'
+    run: 'True'
+    run_options: prompt
+    gen_cmake: 'On'
+    description: SoapySDR radio -> Receiver -> Sky Panel, spectrum.
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 8
+    - 8
+    rotation: 0
+    state: enabled
+blocks:
+- name: samp_rate
+  id: variable
+  parameters:
+    value: 2.048e6
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 230
+    - 12
+    rotation: 0
+    state: enabled
+- name: driver
+  id: parameter
+  parameters:
+    label: SoapySDR driver
+    type: str
+    value: '"sdrplay"'
+    short_id: d
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 400
+    - 12
+    rotation: 0
+    state: enabled
+- name: antenna
+  id: parameter
+  parameters:
+    label: Antenna port
+    type: str
+    value: '""'
+    short_id: a
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 600
+    - 12
+    rotation: 0
+    state: enabled
+- name: gain
+  id: parameter
+  parameters:
+    label: Overall gain (dB)
+    type: eng_float
+    value: '40'
+    short_id: g
+    comment: or tune the elements with gr-rxtune
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 780
+    - 12
+    rotation: 0
+    state: enabled
+- name: bias
+  id: parameter
+  parameters:
+    label: Bias-T (active antenna)
+    type: intx
+    value: '0'
+    short_id: b
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 960
+    - 12
+    rotation: 0
+    state: enabled
+- name: fix_file
+  id: parameter
+  parameters:
+    label: Fix file (keep it out of any repository)
+    type: str
+    value: '""'
+    short_id: o
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 1200
+    - 12
+    rotation: 0
+    state: enabled
+- name: src
+  id: soapy_custom_source
+  parameters:
+    driver: driver
+    type: fc32
+    nchan: '1'
+    dev_args: '""'
+    samp_rate: samp_rate
+    center_freq0: 1575.42e6
+    bandwidth0: 2.5e6
+    antenna0: antenna
+    gain0: gain
+    agc0: 'False'
+    minoutbuf: '4194304'
+    comment: 'L1 C/A: 1575.42 MHz'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 8
+    - 280
+    rotation: 0
+    state: enabled
+- name: rx
+  id: gpsrx_receiver
+  parameters:
+    samp_rate: samp_rate
+    n_channels: '8'
+    interval_s: '20.0'
+    threshold: '2.5'
+    iono_file: '""'
+    fix_file: fix_file
+    hold: 'False'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 560
+    - 260
+    rotation: 0
+    state: enabled
+- name: spectrum
+  id: qtgui_freq_sink_x
+  parameters:
+    type: complex
+    name: '"L1 baseband (the signal is below the noise)"'
+    fftsize: '1024'
+    fc: '0'
+    bw: samp_rate
+    average: '0.02'
+    gui_hint: 0,0,1,1
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 330
+    - 40
+    rotation: 0
+    state: enabled
+- name: panel
+  id: gpsrx_sky_panel
+  parameters:
+    label: '"GPS receiver"'
+    gui_hint: 1,0,1,1
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 900
+    - 260
+    rotation: 0
+    state: enabled
+connections:
+- - src
+  - '0'
+  - rx
+  - '0'
+- - src
+  - '0'
+  - spectrum
+  - '0'
+- - rx
+  - sky
+  - panel
+  - sky
+- - rx
+  - status
+  - panel
+  - status
+- - rx
+  - obs
+  - panel
+  - obs
+- - rx
+  - nav
+  - panel
+  - nav
+- - rx
+  - fix
+  - panel
+  - fix
+metadata:
+  file_format: 1
+  grc_version: 3.10.12.0

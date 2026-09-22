@@ -6,4 +6,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 
-install(FILES DESTINATION share/gnuradio/grc/blocks)
+install(FILES
+    gpsrx_acquisition.block.yml
+    gpsrx_channel.block.yml
+    gpsrx_nav_decoder.block.yml
+    gpsrx_pvt.block.yml
+    gpsrx_status.block.yml
+    gpsrx_receiver.block.yml
+    gpsrx_sky_panel.block.yml
+    DESTINATION share/gnuradio/grc/blocks)
