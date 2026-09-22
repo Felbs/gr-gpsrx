@@ -190,6 +190,7 @@ the same lane as gnss-sdr, 2-3 m apart; a live hour on an SDRplay RSPdx at rms 2
 
 ## 7. What it does not do (yet)
 
-Only GPS L1 C/A, one frequency. No FLL (pull-in relies on acquisition's Doppler refinement; the
-sensitivity floor, 31 dB-Hz, is where the 1 ms first stage stops locking). No carrier-phase
-positioning, no RTK. No Galileo (numpy-gps has the E1 codes; that is the next constellation).
+One frequency. Galileo E1-B is in (joint fixes; `gale1.py`, `nav_gal.py`; needs 4 MS/s and Python
+channels so far) but only its data channel - E1-C pilot tracking, with 100 ms of coherent
+integration, is what will make it pay. The FLL exists but buys nothing measurable (the 31 dB-Hz
+floor is the 1 ms first stage's lock threshold). No carrier-phase positioning, no RTK.

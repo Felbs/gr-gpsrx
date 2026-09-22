@@ -52,7 +52,8 @@ class pvt_solver(gr.basic_block):
         self.eph_store = {}
         if self.eph_file and os.path.exists(self.eph_file):
             try:
-                self.eph_store = {int(k): v for k, v in json.load(open(self.eph_file)).items()}
+                raw = json.load(open(self.eph_file))
+                self.eph_store = {(k if k[:1] in "GE" else "G" + k): v for k, v in raw.items()}   # old files: bare GPS PRNs
             except (ValueError, OSError):
                 self.eph_store = {}
         self.n_borrowed = 0
@@ -96,26 +97,29 @@ class pvt_solver(gr.basic_block):
         with self._lock:
             key = (int(d["slot"]), int(d["prn"]))
             ent = self.nav.setdefault(key, {})
-            ent["anchor"] = (int(d["anchor"][0]), float(d["anchor"][1]))
+            ent["sys"] = str(d.get("system", "GPS"))
+            if d["anchor"][1] >= 0:
+                ent["anchor"] = (int(d["anchor"][0]), float(d["anchor"][1]))
+            skey = ("E" if ent["sys"] == "GAL" else "G") + str(int(d["prn"]))
             if d.get("complete") and "eph" in d:
                 ent["eph"] = dict(d["eph"], prn=int(d["prn"]))
                 ent["borrowed"] = False
                 if self.eph_file:
-                    self.eph_store[int(d["prn"])] = ent["eph"]
+                    self.eph_store[skey] = ent["eph"]
                     try:
                         os.makedirs(os.path.dirname(os.path.abspath(self.eph_file)), exist_ok=True)
                         with open(self.eph_file, "w") as fh:
                             json.dump({str(k): v for k, v in self.eph_store.items()}, fh)
                     except OSError:
                         pass
-            elif "eph" not in ent and int(d["prn"]) in self.eph_store:
-                cand = self.eph_store[int(d["prn"])]
+            elif "eph" not in ent and skey in self.eph_store and "anchor" in ent:
+                cand = self.eph_store[skey]
                 tow = float(d["anchor"][1])
                 if abs(((tow - cand["toe"]) + 302400) % 604800 - 302400) < EPH_VALID_S:
                     ent["eph"] = cand
                     ent["borrowed"] = True
                     self.n_borrowed += 1
-            if "iono" in d:
+            if "iono" in d and ent["sys"] == "GPS":
                 self.iono, self.iono_src = {"a": list(d["iono"]["a"]), "b": list(d["iono"]["b"])}, "decoded"
 
     def _timing(self, fx):
@@ -197,7 +201,7 @@ class pvt_solver(gr.basic_block):
                 ent = self.nav.get((slot, int(o["prn"])))
                 if ent and "eph" in ent and "anchor" in ent:
                     chans.append(dict(prn=int(o["prn"]), eph=ent["eph"], anchor=ent["anchor"], obs=o,
-                                      borrowed=ent.get("borrowed", False)))
+                                      borrowed=ent.get("borrowed", False), sys=ent.get("sys", "GPS")))
             if len(chans) < 4:
                 return
             self._last = self._pending
@@ -228,7 +232,8 @@ class pvt_solver(gr.basic_block):
                        epoch_sample=fx["epoch_sample"], iono=self.iono_src, count=self.n_fixes,
                        raim=fx["raim"], weights=fx["weights"], smoothed=fx.get("smoothed", {}), **(kf_out or {}), **time_out,
                        borrowed=[c["prn"] for c in chans if c.get("borrowed")],
-                       azel={str(p): list(v) for p, v in fx["azel"].items()})     # the sky, for the panel
+                       azel={str(p): list(v) for p, v in fx["azel"].items()},     # the sky, for the panel
+                       isb_s=fx.get("isb_s"))
             if P is not None and len(P) >= 3:
                 mean = P.mean(axis=0)
                 out["ecef_mean"] = mean.tolist()

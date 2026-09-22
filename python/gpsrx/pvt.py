@@ -49,7 +49,7 @@ def _wrap_week(t):
 def ecc_anomaly(eph, t):
     A = eph["sqrtA"] ** 2
     tk = _wrap_week(t - eph["toe"])
-    M = eph["M0"] + (np.sqrt(MU / A ** 3) + eph.get("dn", 0.0)) * tk
+    M = eph["M0"] + (np.sqrt(eph.get("mu", MU) / A ** 3) + eph.get("dn", 0.0)) * tk
     E = M
     for _ in range(15):
         E = M + eph["e"] * np.sin(E)
@@ -57,7 +57,8 @@ def ecc_anomaly(eph, t):
 
 
 def sat_ecef(eph, t):
-    """Satellite ECEF (m) at GPS time-of-week t (IS-GPS-200 Table 20-IV)."""
+    """Satellite ECEF (m) at time-of-week t (IS-GPS-200 Table 20-IV; Galileo's ICD 5.1.1 is the same
+    algorithm with its own mu, carried in the ephemeris as 'mu')."""
     A = eph["sqrtA"] ** 2
     tk = _wrap_week(t - eph["toe"])
     E = ecc_anomaly(eph, t)
@@ -135,7 +136,7 @@ def transmit_time_sv(obs, anchor, fs):
     exactly that many milliseconds of SV time. No fraction: the channel reports the epoch's own
     arrival sample, so the range fraction lives in the receive time, not here."""
     e_anchor, tow_anchor = anchor
-    return tow_anchor + (obs["epochs"] - e_anchor) * 1e-3
+    return tow_anchor + (obs["epochs"] - e_anchor) * obs.get("period_s", 1e-3)   # 1 ms GPS, 4 ms Galileo
 
 
 def refer_to_common_sample(entries, fs):
@@ -154,20 +155,25 @@ def refer_to_common_sample(entries, fs):
 
 
 # ---- the solve ----------------------------------------------------------------------------
-def solve_ls(sats, weights=None):
-    """sats = [(ecef_xyz, pseudorange_m)] -> (x, y, z, c*dt), Gauss-Newton."""
+def solve_ls(sats, weights=None, isb=None):
+    """sats = [(ecef_xyz, pseudorange_m)] -> (x, y, z, c*dt[, c*isb]), Gauss-Newton. isb: a 0/1
+    vector marking the satellites of a second system (Galileo), which get their own clock
+    unknown - the inter-system bias, GST minus GPS time as this receiver sees it."""
     SP = np.asarray([sp for sp, _ in sats], float)
     PR = np.asarray([pr for _, pr in sats], float)
     n = len(PR)
-    x = np.zeros(4)
-    A = np.empty((n, 4))
+    k = 5 if isb is not None and np.any(isb) and not np.all(isb) else 4
+    x = np.zeros(k)
+    A = np.empty((n, k))
     A[:, 3] = 1.0
+    if k == 5:
+        A[:, 4] = np.asarray(isb, float)
     sw = None if weights is None else np.sqrt(np.asarray(weights, float))[:, None]
     for _ in range(12):
         d = x[:3] - SP
         rng = np.sqrt((d * d).sum(axis=1))
         A[:, :3] = d / rng[:, None]
-        res = PR - (rng + x[3])
+        res = PR - (rng + A[:, 3:] @ x[3:])
         dx = np.linalg.lstsq(A if sw is None else A * sw, res if sw is None else res * sw[:, 0], rcond=None)[0]
         x = x + dx
         if np.linalg.norm(dx[:3]) < 1e-3:
@@ -195,9 +201,11 @@ def _solve_once(prs, iono, t_rx0, weighted=True):
     t_rx = t_rx0
     x = np.zeros(4)
     weights = None
+    isb = np.array([1.0 if len(p) > 4 and p[4] == "GAL" else 0.0 for p in prs])
     for it in range(8):
         sats, vars_ = [], []
-        for prn, eph, t_tx, cn0 in prs:
+        for p in prs:
+            prn, eph, t_tx, cn0 = p[:4]
             sp = sat_ecef(eph, t_tx)
             tau = max(t_rx - t_tx, 0.0)
             th = OMEGA_E * tau                                            # Sagnac
@@ -221,9 +229,9 @@ def _solve_once(prs, iono, t_rx0, weighted=True):
             vars_.append(measurement_variance(el if el is not None else np.pi / 4, cn0))
         # weights only once the elevations are known (the first passes are unweighted)
         weights = [1.0 / v for v in vars_] if (weighted and it >= 3) else None
-        x, A = solve_ls(sats, weights)
+        x, A = solve_ls(sats, weights, isb=isb)
         t_rx -= x[3] / C
-    res = np.array([pr - (np.linalg.norm(x[:3] - sp) + x[3]) for sp, pr in sats])
+    res = np.array([pr - (np.linalg.norm(x[:3] - sp) + A[i, 3:] @ x[3:]) for i, (sp, pr) in enumerate(sats)])
     w = np.array(weights) if weights is not None else np.ones(len(sats))
     return x, A, sats, res, w, t_rx
 
@@ -238,13 +246,13 @@ def solve(entries, iono=None, weights=None, raim=True):
     prs = []
     for e in entries:
         t_gps = e["t_sv"] - clock_corr(e["eph"], e["t_sv"])              # law 1: correct AFTER assembly
-        prs.append((e["prn"], e["eph"], t_gps, float(e.get("cn0_db", 0.0) or 0.0)))
-    t_rx0 = max(t for _, _, t, _ in prs) + 0.075
+        prs.append((e["prn"], e["eph"], t_gps, float(e.get("cn0_db", 0.0) or 0.0), e.get("sys", "GPS")))
+    t_rx0 = max(p[2] for p in prs) + 0.075
     weighted = weights is None or weights is not False
 
     def run(subset):
         x, A, sats, res, w, t_rx = _solve_once(subset, iono, t_rx0, weighted)
-        dof = len(subset) - 4
+        dof = len(subset) - (5 if 0 < sum(1 for p in subset if p[4] == "GAL") < len(subset) else 4)
         stat = float(np.sum(w * res * res)) if dof > 0 else 0.0
         return dict(x=x, A=A, sats=sats, res=res, w=w, t_rx=t_rx, stat=stat, dof=dof, prs=subset)
 
@@ -266,9 +274,9 @@ def solve(entries, iono=None, weights=None, raim=True):
     x, A, sats, res, w, t_rx, prs = best["x"], best["A"], best["sats"], best["res"], best["w"], best["t_rx"], best["prs"]
     lat, lon, h = ecef_to_llh(x[:3])
     azel = {}
-    for (prn, _, _, _), (sp, _) in zip(prs, sats):
+    for p, (sp, _) in zip(prs, sats):
         az, el = az_el(x[:3], sp)
-        azel[prn] = (float(np.degrees(az)) % 360.0, float(np.degrees(el)))
+        azel[("E" if p[4] == "GAL" else "") + str(p[0])] = (float(np.degrees(az)) % 360.0, float(np.degrees(el)))
     try:
         Aw = A * np.sqrt(w)[:, None]
         Q = np.linalg.inv(Aw.T @ Aw) * float(np.mean(1.0 / w))      # in metres^2, comparable to unweighted
@@ -278,7 +286,9 @@ def solve(entries, iono=None, weights=None, raim=True):
         pdop, cov = float("nan"), np.full((3, 3), np.nan)
     return {"ecef": x[:3].tolist(), "llh": (float(lat), float(lon), float(h)), "clock_bias_s": float(x[3] / C),
             "t_rx": float(t_rx), "rms_m": float(np.sqrt(np.mean(res ** 2))), "pdop": pdop, "n": len(sats),
-            "residuals_m": res.tolist(), "prns": [p for p, _, _, _ in prs], "azel": azel,
+            "residuals_m": res.tolist(), "prns": [("E" if p[4] == "GAL" else "") + str(p[0]) for p in prs], "azel": azel,
+            "isb_m": float(x[4]) if len(x) > 4 else None,
+            "isb_s": float(-x[4] / C) if len(x) > 4 else None,       # GST - GPS time as this receiver sees it
             "weights": (w / w.max()).tolist(), "cov_ecef": cov.tolist(),
             "raim": {"stat": best["stat"], "threshold": thr, "pass": bool(raim_pass), "excluded": excluded},
             "altitude_plausible": bool(-500 < h < 9000),
@@ -312,7 +322,7 @@ def hatch_smooth(entries, state, fs, s_ref, M=100, slip_m=30.0):
     for e in entries:
         pr = C * (t_ref - e["t_sv"])                          # metres, with the receiver clock in it
         phase_m = -LAMBDA_L1 * e["carrier_cycles"]           # positive Doppler = closing = range falling
-        st = state.get(e["prn"])
+        st = state.get((e.get("sys", "GPS"), e["prn"]))
         d = (pr - st["pr_raw"]) - (phase_m - st["phase_m"]) if st is not None else None
         raw.append((e, pr, phase_m, st, d))
     ds = [d for _, _, _, _, d in raw if d is not None and abs(d) < 3 * slip_m]
@@ -327,7 +337,7 @@ def hatch_smooth(entries, state, fs, s_ref, M=100, slip_m=30.0):
             pr_s = pr / n + (n - 1) / n * (st["pr_s"] + phase_m - st["phase_m"] + common)
         else:
             n, pr_s = 1, pr
-        state[e["prn"]] = {"n": n, "pr_s": pr_s, "phase_m": phase_m, "pr_raw": pr}
+        state[(e.get("sys", "GPS"), e["prn"])] = {"n": n, "pr_s": pr_s, "phase_m": phase_m, "pr_raw": pr}
         out.append(dict(e, t_sv=t_ref - pr_s / C, smoothed=n))
     return out
 
@@ -343,14 +353,14 @@ def fix_from_channels(channels, fs, iono=None, hatch=None, hatch_m=100):
         o = c["obs"]
         entries.append(dict(prn=c["prn"], eph=c["eph"], t_sv=t_sv, carrier_hz=o.get("carrier_hz", 0.0),
                             epoch_sample=o.get("epoch_sample", o.get("sample_abs")), cn0_db=o.get("cn0_db", 0.0),
-                            carrier_cycles=o.get("carrier_cycles", 0.0)))
+                            carrier_cycles=o.get("carrier_cycles", 0.0), sys=o.get("sys", c.get("sys", "GPS"))))
     if len(entries) < 4:
         return None
     s_ref, entries = refer_to_common_sample(entries, fs)
     if hatch is not None and hatch_m > 1 and all("carrier_cycles" in e for e in entries):
         entries = hatch_smooth(entries, hatch, fs, s_ref, M=hatch_m)
     fx = solve(entries, iono=iono)
-    fx["smoothed"] = {e["prn"]: e.get("smoothed", 0) for e in entries}
+    fx["smoothed"] = {("E" if e.get("sys") == "GAL" else "") + str(e["prn"]): e.get("smoothed", 0) for e in entries}
     fx["epoch_sample"] = float(s_ref)
     return fx
 

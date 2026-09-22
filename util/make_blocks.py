@@ -32,8 +32,10 @@ the whole sky up to +-47 kHz off; one wide coarse pass finds it and every search
 Hold: for file replay only - stops the stream while a
 search runs, otherwise a file source races past an idle receiver.""",
          make="gpsrx.acquisition(samp_rate=${samp_rate}, n_slots=${n_slots}, snapshot_ms=${snapshot_ms}, "
-              "interval_s=${interval_s}, threshold=${threshold}, n_noncoh=${n_noncoh}, hold=${hold}, settle_s=${settle_s}, lo_search_hz=${lo_search_hz})",
-         params=[RATE, {"id": "n_slots", "label": "Channel slots", "dtype": "int", "default": "8"},
+              "interval_s=${interval_s}, threshold=${threshold}, n_noncoh=${n_noncoh}, hold=${hold}, settle_s=${settle_s}, lo_search_hz=${lo_search_hz}, system=${system}, slot0=${slot0})",
+         params=[RATE, {"id": "system", "label": "System", "dtype": "enum", "default": "'GPS'", "options": ["'GPS'", "'GAL'"], "option_labels": ["GPS L1 C/A", "Galileo E1-B (>= 4 MS/s)"]},
+                 {"id": "slot0", "label": "First slot", "dtype": "int", "default": "0"},
+                 {"id": "n_slots", "label": "Channel slots", "dtype": "int", "default": "8"},
                  {"id": "interval_s", "label": "Interval (s)", "dtype": "real", "default": "20.0"},
                  {"id": "threshold", "label": "Threshold", "dtype": "real", "default": "2.5"},
                  {"id": "n_noncoh", "label": "Non-coherent ms", "dtype": "int", "default": "100", "hide": "part"},
@@ -58,10 +60,11 @@ Static antenna: 5 Hz narrow PLL; moving: 8-15 Hz. 0 disables the second stage.
 Idle until 'assign' names its slot (from the Acquisition block). 'status' says tracking /
 lost / idle. Slot: this channel's number; Acquisition assigns by it.""",
          make="gpsrx.channel(samp_rate=${samp_rate}, slot=${slot}, pll_bw=${pll_bw}, dll_bw=${dll_bw}, "
-              "obs_every_ms=${obs_every_ms}, pll_bw_narrow=${pll_bw_narrow}, dll_bw_narrow=${dll_bw_narrow}, coherent_ms=${coherent_ms}, pll_order=${pll_order})",
-         params=[RATE, SLOT, {"id": "pll_bw", "label": "PLL bandwidth (Hz)", "dtype": "real", "default": "18.0"},
+              "obs_every_ms=${obs_every_ms}, pll_bw_narrow=${pll_bw_narrow}, dll_bw_narrow=${dll_bw_narrow}, coherent_ms=${coherent_ms}, pll_order=${pll_order}, signal=${signal})",
+         params=[RATE, SLOT, {"id": "signal", "label": "Signal", "dtype": "enum", "default": "'L1CA'", "options": ["'L1CA'", "'E1B'"], "option_labels": ["GPS L1 C/A", "Galileo E1-B"]},
+                 {"id": "pll_bw", "label": "PLL bandwidth (Hz)", "dtype": "real", "default": "18.0"},
                  {"id": "dll_bw", "label": "DLL bandwidth (Hz)", "dtype": "real", "default": "2.0"},
-                 {"id": "obs_every_ms", "label": "Observable every (ms)", "dtype": "int", "default": "1000", "hide": "part"},
+                 {"id": "obs_every_ms", "label": "Observable every (periods)", "dtype": "int", "default": "1000", "hide": "part"},
                  {"id": "pll_bw_narrow", "label": "PLL bandwidth after bit sync (Hz)", "dtype": "real", "default": "15.0"},
                  {"id": "dll_bw_narrow", "label": "DLL bandwidth after bit sync (Hz)", "dtype": "real", "default": "0.5"},
                  {"id": "coherent_ms", "label": "Coherent integration after bit sync (ms)", "dtype": "int", "default": "20"},
@@ -128,8 +131,9 @@ Complex baseband in; 'fix' out, plus every inner message port ('sky', 'status', 
 examples/gpsrx_canvas.grc. Hold: file replay only. Channel engine: the C++
 Channel keeps up with a radio; the Python one is for replay and reading.""",
          make="gpsrx.receiver(samp_rate=${samp_rate}, n_channels=${n_channels}, interval_s=${interval_s}, "
-              "threshold=${threshold}, iono_file=${iono_file}, fix_file=${fix_file}, hold=${hold}, engine=${engine}, eph_file=${eph_file}, smoothing=${smoothing}, kf_vel_sd=${kf_vel_sd}, lo_search_hz=${lo_search_hz})",
+              "threshold=${threshold}, iono_file=${iono_file}, fix_file=${fix_file}, hold=${hold}, engine=${engine}, eph_file=${eph_file}, smoothing=${smoothing}, kf_vel_sd=${kf_vel_sd}, lo_search_hz=${lo_search_hz}, n_galileo=${n_galileo})",
          params=[RATE, {"id": "n_channels", "label": "Channels", "dtype": "int", "default": "8"},
+                 {"id": "n_galileo", "label": "Galileo E1-B channels (needs >= 4 MS/s; Python)", "dtype": "int", "default": "0"},
                  {"id": "engine", "label": "Channel engine", "dtype": "enum", "default": "'auto'",
                   "options": ["'auto'", "'cpp'", "'python'"], "option_labels": ["C++ if built", "C++ (live)", "Python (replay only)"]},
                  {"id": "interval_s", "label": "Search interval (s)", "dtype": "real", "default": "20.0"},

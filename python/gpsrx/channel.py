@@ -36,7 +36,7 @@ LOST_PERIODS = 500
 
 class channel(gr.basic_block):
     def __init__(self, samp_rate=2.048e6, slot=0, pll_bw=18.0, dll_bw=2.0, obs_every_ms=1000, batch_ms=3,
-                 pll_bw_narrow=15.0, dll_bw_narrow=0.5, coherent_ms=20, pll_order=3):
+                 pll_bw_narrow=15.0, dll_bw_narrow=0.5, coherent_ms=20, pll_order=3, signal="L1CA"):
         gr.basic_block.__init__(self, name="gpsrx_channel", in_sig=[np.complex64], out_sig=[np.complex64])
         self.fs = float(samp_rate)
         self.slot = int(slot)
@@ -44,6 +44,12 @@ class channel(gr.basic_block):
         self.pll_bw_narrow, self.dll_bw_narrow = float(pll_bw_narrow), float(dll_bw_narrow)
         self.coherent_ms = int(coherent_ms)
         self.pll_order = int(pll_order)
+        # signal: 'L1CA' (GPS) or 'E1B' (Galileo): the engine's code, period and spacing follow
+        self.signal_name = str(signal).upper()
+        self.sig = None
+        if self.signal_name == "E1B":
+            from . import gale1
+            self.sig = gale1.SIGNAL_E1B
         self.obs_every = int(obs_every_ms)
         self.eng = None
         self.prn = 0
@@ -85,7 +91,8 @@ class channel(gr.basic_block):
             self.prn = prn
 
     def _status(self, what, **kw):
-        self.message_port_pub(pmt.intern("status"), pmt.to_pmt(dict(slot=self.slot, prn=self.prn, what=what, **kw)))
+        self.message_port_pub(pmt.intern("status"), pmt.to_pmt(dict(slot=self.slot, prn=self.prn, what=what,
+                                                                  system="GAL" if self.sig else "GPS", **kw)))
 
     # ---- the stream --------------------------------------------------------------------
     def general_work(self, input_items, output_items):
@@ -108,17 +115,18 @@ class channel(gr.basic_block):
                 # The code repeats every 1023 chips AT ITS DOPPLER-SHIFTED RATE: extrapolating with
                 # the nominal period would be 3 chips/s wrong at 5 kHz of Doppler (22 chips over
                 # a 7 s search). Wrap with the true period.
-                period = self.fs * CODE_LEN / (CODE_RATE * (1.0 + dop / L1_HZ))
+                clen = self.sig["code_len"] if self.sig else CODE_LEN
+                period = self.fs * clen / (CODE_RATE * (1.0 + dop / L1_HZ))
                 rel = (sample - start) % period
                 self.eng = Engine(prn, self.fs, dop, rel, pll_bw=self.pll_bw, dll_bw=self.dll_bw,
                                   pll_bw_narrow=self.pll_bw_narrow, dll_bw_narrow=self.dll_bw_narrow,
-                                  coherent_ms=self.coherent_ms, pll_order=self.pll_order)
+                                  coherent_ms=self.coherent_ms, pll_order=self.pll_order, signal=self.sig)
                 self._t0_abs = start                       # engine sample k == absolute start + k
                 self._lost_run = 0
                 # the prompt stream carries the assignment as a tag on its first item: the Nav
                 # Decoder downstream restarts its period count there, in step with the engine's
                 self.add_item_tag(0, self.nitems_written(0), pmt.intern("gpsrx_assign"),
-                                  pmt.to_pmt(dict(prn=prn, slot=self.slot)))
+                                  pmt.to_pmt(dict(prn=prn, slot=self.slot, system="GAL" if self.sig else "GPS")))
                 self._status("tracking", doppler_hz=dop)
             eng = self.eng
             consumed = produced = 0
@@ -161,7 +169,7 @@ class channel(gr.basic_block):
         return produced
 
     def _nominal(self):
-        return int(round(self.fs * 1e-3))
+        return int(round(self.fs * (4e-3 if self.sig else 1e-3)))
 
     def forecast(self, noutput_items, ninputs):
         # a period is ~1 ms of samples, and can run a few samples long while the DLL pulls in

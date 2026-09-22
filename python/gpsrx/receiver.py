@@ -26,7 +26,7 @@ from .pvt_solver import pvt_solver
 class receiver(gr.hier_block2):
     def __init__(self, samp_rate=2.048e6, n_channels=8, interval_s=20.0, threshold=2.5, n_noncoh=100,
                  pll_bw=18.0, dll_bw=2.0, iono_file="", fix_file="", average=15, hold=False, engine="auto",
-                 eph_file="", pll_bw_narrow=15.0, dll_bw_narrow=0.5, coherent_ms=20, smoothing=100, kf_vel_sd=4.0, lo_search_hz=0.0, pll_order=3):
+                 eph_file="", pll_bw_narrow=15.0, dll_bw_narrow=0.5, coherent_ms=20, smoothing=100, kf_vel_sd=4.0, lo_search_hz=0.0, pll_order=3, n_galileo=0):
         # engine: "cpp" (channel_cc, 15x real time for eight), "python" (channel, 0.17x: replay
         # only), "auto" = C++ if it was built. Same ports, tags and messages either way.
         try:
@@ -45,21 +45,35 @@ class receiver(gr.hier_block2):
             self.message_port_register_hier_out(port)
         self.acq = acquisition(samp_rate, n_slots=n_channels, interval_s=interval_s, threshold=threshold,
                                n_noncoh=n_noncoh, hold=hold, lo_search_hz=lo_search_hz)
+        # Galileo E1-B: its own Acquisition (4 ms BOC replicas) owning the slots after the GPS ones,
+        # Python channels (the C++ twin is L1 C/A only, so far), the same Nav Decoder block
+        self.acq_gal = None
+        if n_galileo:
+            self.acq_gal = acquisition(samp_rate, n_slots=n_galileo, interval_s=interval_s, threshold=threshold,
+                                       n_noncoh=n_noncoh, hold=hold, lo_search_hz=0.0, system="GAL", slot0=int(n_channels),
+                                       settle_s=0.5 + 0.2)
         self.pvt = pvt_solver(samp_rate, average=average, iono_file=iono_file, fix_file=fix_file, eph_file=eph_file,
                               smoothing=smoothing, kf_vel_sd=kf_vel_sd)
         self.chans, self.decs = [], []
         self.connect(self, self.acq)
-        for s in range(int(n_channels)):
-            if engine == "cpp":
+        if self.acq_gal is not None:
+            self.connect(self, self.acq_gal)
+            self.msg_connect(self.acq_gal, "sky", self, "sky")
+        for s in range(int(n_channels) + int(n_galileo)):
+            gal = s >= int(n_channels)
+            acq = self.acq_gal if gal else self.acq
+            if engine == "cpp" and not gal:
                 ch = channel_cc(float(samp_rate), s, float(pll_bw), float(dll_bw), 1000,
                                 float(pll_bw_narrow), float(dll_bw_narrow), int(coherent_ms), int(pll_order))
             else:
-                ch = channel(samp_rate, slot=s, pll_bw=pll_bw, dll_bw=dll_bw, pll_bw_narrow=pll_bw_narrow,
-                             dll_bw_narrow=dll_bw_narrow, coherent_ms=coherent_ms, pll_order=pll_order)
+                ch = channel(samp_rate, slot=s, pll_bw=pll_bw if not gal else 12.0, dll_bw=dll_bw if not gal else 1.0,
+                             pll_bw_narrow=pll_bw_narrow, dll_bw_narrow=dll_bw_narrow, coherent_ms=coherent_ms,
+                             pll_order=pll_order, signal="E1B" if gal else "L1CA",
+                             obs_every_ms=250 if gal else 1000)      # an observable per second: 4 ms periods
             dec = nav_decoder(slot=s)
             self.connect(self, ch, dec)
-            self.msg_connect(self.acq, "assign", ch, "assign")
-            self.msg_connect(ch, "status", self.acq, "status")
+            self.msg_connect(acq, "assign", ch, "assign")
+            self.msg_connect(ch, "status", acq, "status")
             self.msg_connect(ch, "obs", self.pvt, "obs")
             self.msg_connect(ch, "status", self.pvt, "status")
             self.msg_connect(dec, "nav", self.pvt, "nav")

@@ -66,9 +66,20 @@ class Channel:
     """Track one PRN through a stream, one code period per step."""
     RAMP_TOL = 5.0          # Hz: rebuild the NCO ramp when the Doppler estimate moves this much (5 Hz over 1 ms = 1.8 deg, under the loop noise)
 
-    def __init__(self, prn, fs, doppler_hz, code_phase_samples, pll_bw=18.0, dll_bw=2.0, spacing=0.5,
+    def __init__(self, prn, fs, doppler_hz, code_phase_samples, pll_bw=18.0, dll_bw=2.0, spacing=None,
                  open_loop=False, pll_bw_narrow=15.0, dll_bw_narrow=0.5, coherent_ms=20, fll_bw=0.0, fll_periods=1000,
-                 pll_order=3):
+                 pll_order=3, signal=None):
+        # signal: None = GPS L1 C/A; gale1.SIGNAL_E1B = Galileo E1-B (4 ms periods, BOC(1,1)
+        # correlators a quarter chip apart, one data symbol per period so no bit sync and no
+        # integration beyond a period). Everything else - loops, observables - is identical.
+        self.sig = signal or dict(name="L1CA", code_len=CODE_LEN, code_rate=CODE_RATE, code_at=code_at, spacing=0.5,
+                                  bit_periods=20, coherent_max=20, carrier_hz=L1_HZ)
+        self.code_len, self.code_rate0 = self.sig["code_len"], self.sig["code_rate"]
+        self.code_fn = self.sig["code_at"]
+        self.bit_periods = int(self.sig["bit_periods"])
+        if spacing is None:
+            spacing = self.sig["spacing"]
+        coherent_ms = min(int(coherent_ms), int(self.sig["coherent_max"]))
         # Two stages, as gnss-sdr does it: wide loops and 1 ms integration to pull in; then, once
         # the data-bit edges are known, NARROW loops and coherent integration over a whole bit
         # (coherent_ms, a divisor of 20). The correlators sum across the bit - 13 dB more
@@ -77,9 +88,9 @@ class Channel:
         # 11.4 m here vs 7.6 m for gnss-sdr with these two things on. pll_bw_narrow=0 disables.
         self.prn, self.fs = prn, float(fs)
         self.pll_bw_narrow, self.dll_bw_narrow = float(pll_bw_narrow), float(dll_bw_narrow)
-        self.coh = int(coherent_ms) if pll_bw_narrow else 1
+        self.coh = int(coherent_ms) if (pll_bw_narrow and self.bit_periods > 1) else 1
         self.bit_offset = None                 # period index (mod 20) at which a data bit begins
-        self._flips = np.zeros(20, np.int64)   # sign-flip histogram for bit sync
+        self._flips = np.zeros(max(int((signal or {}).get("bit_periods", 20)), 1), np.int64)   # sign-flip histogram for bit sync
         self._last_ip = 0.0
         self._acc = np.zeros(3, complex)       # E, P, L accumulated over the coherent window
         self._acc_n = 0
@@ -103,12 +114,12 @@ class Channel:
         self._mn = 0
         # acquisition hands over a code phase in SAMPLES (the sample at which the code starts);
         # the code phase in chips at sample 0 is therefore -(that) * chips/sample, modulo 1023
-        chips_per_sample = CODE_RATE / self.fs
-        cp0 = (-float(code_phase_samples) * chips_per_sample) % CODE_LEN
-        self.s = ChannelState(prn=prn, fs=self.fs, carrier_hz=float(doppler_hz), code_phase=cp0)
+        chips_per_sample = self.code_rate0 / self.fs
+        cp0 = (-float(code_phase_samples) * chips_per_sample) % self.code_len
+        self.s = ChannelState(prn=prn, fs=self.fs, carrier_hz=float(doppler_hz), code_phase=cp0, code_rate=self.code_rate0)
         self.spacing = float(spacing)
         self.open_loop = bool(open_loop)
-        self.T = CODE_LEN / CODE_RATE                       # nominal period, 1 ms
+        self.T = self.code_len / self.code_rate0            # nominal period: 1 ms GPS, 4 ms Galileo
         self.pll_t1, self.pll_t2 = loop_gains(pll_bw, k=0.25)   # atan/2pi is +-1/4 cycle full scale
         self.dll_t1, self.dll_t2 = loop_gains(dll_bw)
         self.doppler0 = float(doppler_hz)
@@ -136,7 +147,7 @@ class Channel:
         """Samples until the code phase reaches the next 1023-chip boundary at the current rate."""
         if self.open_loop:
             return self.n_nominal
-        chips_left = CODE_LEN - self.s.code_phase
+        chips_left = self.code_len - self.s.code_phase
         return max(1, int(np.ceil(chips_left * self.fs / self.s.code_rate)))
 
     # ---- one code period ---------------------------------------------------------------
@@ -154,18 +165,18 @@ class Channel:
         chips_per_sample = s.code_rate / self.fs
         ph = s.code_phase + np.arange(n) * chips_per_sample
         if self.open_loop:
-            prompt = code_at(self.prn, ph)
+            prompt = self.code_fn(self.prn, ph)
             ip, qp = float(np.dot(xb.real, prompt)), float(np.dot(xb.imag, prompt))
             ie = qe = il = ql = 0.0
         else:
-            codes = code_at(self.prn, ph[None, :] + self._epl[:, None])          # (3, n): E, P, L
+            codes = self.code_fn(self.prn, ph[None, :] + self._epl[:, None])     # (3, n): E, P, L
             c = codes @ np.column_stack((xb.real, xb.imag))                     # (3, 2)
             (ie, qe), (ip, qp), (il, ql) = (float(c[0, 0]), float(c[0, 1])), (float(c[1, 0]), float(c[1, 1])),                 (float(c[2, 0]), float(c[2, 1]))
         # advance phases by what this period consumed
         dt = n / self.fs
         s.carrier_phase = (s.carrier_phase + 2 * np.pi * s.carrier_hz * dt) % (2 * np.pi)
         s.carrier_cycles += s.carrier_hz * dt              # the NCO's own count: -lambda x this = range change
-        s.code_phase = (s.code_phase + n * chips_per_sample) % CODE_LEN
+        s.code_phase = (s.code_phase + n * chips_per_sample) % self.code_len
         s.samples_in += n
         s.epochs += 1
         if not self.open_loop:
@@ -249,7 +260,7 @@ class Channel:
             e_dll = 0.5 * (E - L) / (E + L) if (E + L) > 0 else 0.0            # chips
             self.code_dop += (self.dll_t2 * (e_dll - s.dll_e_prev) + dt_loop * e_dll) / self.dll_t1
             s.dll_e_prev = e_dll
-            s.code_rate = CODE_RATE + s.carrier_hz * CARRIER_TO_CODE + self.code_dop
+            s.code_rate = self.code_rate0 + s.carrier_hz * (self.code_rate0 / self.sig["carrier_hz"]) + self.code_dop
         return ip, qp
 
     def _bit_sync(self, ip):
@@ -259,7 +270,7 @@ class Channel:
         s = self.s
         # s.epochs has already counted this period, so THIS period's index is epochs - 1
         if self._last_ip != 0.0 and np.sign(ip) != np.sign(self._last_ip) and s.lock > 0.5:
-            self._flips[(s.epochs - 1) % 20] += 1
+            self._flips[(s.epochs - 1) % self.bit_periods] += 1
         self._last_ip = ip
         if s.epochs >= 300 and self._flips.max() >= 8 and s.lock > 0.5:
             top = np.sort(self._flips)[::-1]
@@ -287,7 +298,7 @@ class Channel:
                 # a 0.5 Hz loop started from +1 chip/s walks the code half a chip before it can
                 # answer (measured; in a noisier run it walked off the peak entirely)
                 self.code_dop = self._cd_avg
-                s.code_rate = CODE_RATE + s.carrier_hz * CARRIER_TO_CODE + self.code_dop
+                s.code_rate = self.code_rate0 + s.carrier_hz * (self.code_rate0 / self.sig["carrier_hz"]) + self.code_dop
                 s.pll_e_prev = s.dll_e_prev = 0.0
                 self._acc[:] = 0
                 self._acc_n, self._acc_dt = 0, 0.0
@@ -308,10 +319,12 @@ class Channel:
         overshoot_samples = s.code_phase * self.fs / s.code_rate
         return {"prn": self.prn, "epochs": s.epochs, "code_phase": s.code_phase, "carrier_hz": s.carrier_hz,
                 "samples_in": s.samples_in, "epoch_sample": s.samples_in - overshoot_samples, "lock": s.lock,
-                "cn0_db": s.cn0_db, "carrier_cycles": s.carrier_cycles - s.carrier_hz * overshoot_samples / self.fs}
+                "cn0_db": s.cn0_db, "carrier_cycles": s.carrier_cycles - s.carrier_hz * overshoot_samples / self.fs,
+                "period_s": self.T, "sys": "GAL" if self.sig["name"] == "E1B" else "GPS"}
 
 
 def track_array(x, fs, prn, doppler_hz, code_phase_samples, n_ms, **kw):
+    # n_ms is a period count (1 ms periods for GPS; 4 ms for Galileo)
     """Convenience: run a channel over an in-memory array for n_ms periods. Returns the prompt
     I+jQ per period and the channel."""
     ch = Channel(prn, fs, doppler_hz, code_phase_samples, **kw)

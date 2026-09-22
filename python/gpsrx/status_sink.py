@@ -98,7 +98,7 @@ class status_sink(gr.basic_block):
                 if c.get("what") != "tracking" or not c.get("prn"):
                     lines.append(f" slot {s}: idle")
                     continue
-                txt = f" slot {s}: PRN{c['prn']:2d}"
+                txt = f" slot {s}: {'E' if (c.get('obs') or {}).get('sys') == 'GAL' else 'G'}{c['prn']:02d}"
                 if o:
                     txt += f"  lock {o['lock']:.2f}  C/N0 {o.get('cn0_db', 0):4.1f}  Doppler {o['carrier_hz']:+7.1f} Hz  {o['epochs'] / 1000:5.0f} s"
                 if nv:
@@ -109,7 +109,8 @@ class status_sink(gr.basic_block):
             f = self.fix
             if f and f.get("ok"):
                 txt = (f" FIX #{f['count']}: {f['n']} satellites {f['prns']}, rms {f['rms_m']:.1f} m, PDOP {f['pdop']:.1f}, "
-                       f"altitude {'plausible' if f['altitude_plausible'] else 'NOT plausible'}, "
+                       + (f"GST-GPS {f['isb_s'] * 1e9:+.0f} ns, " if f.get('isb_s') is not None else "")
+                       + f"altitude {'plausible' if f['altitude_plausible'] else 'NOT plausible'}, "
                        f"RAIM {'ok' if f.get('valid', True) else 'FAULT - not believed'}"
                        + (f" (PRN {f['raim']['excluded']} excluded)" if f.get('raim', {}).get('excluded') else "") + f", iono {f['iono']}")
                 if "scatter_m" in f:

@@ -28,13 +28,19 @@ documentation: 'One satellite''s tracking loop. Complex baseband in; the prompt 
   lost / idle. Slot: this channel''s number; Acquisition assigns by it.'
 templates: {imports: from gnuradio import gpsrx, make: 'gpsrx.channel(samp_rate=${samp_rate}, slot=${slot},
     pll_bw=${pll_bw}, dll_bw=${dll_bw}, obs_every_ms=${obs_every_ms}, pll_bw_narrow=${pll_bw_narrow},
-    dll_bw_narrow=${dll_bw_narrow}, coherent_ms=${coherent_ms}, pll_order=${pll_order})'}
+    dll_bw_narrow=${dll_bw_narrow}, coherent_ms=${coherent_ms}, pll_order=${pll_order}, signal=${signal})'}
 parameters:
 - {id: samp_rate, label: Sample rate, dtype: real, default: samp_rate}
 - {id: slot, label: Slot, dtype: int, default: '0'}
+- id: signal
+  label: Signal
+  dtype: enum
+  default: '''L1CA'''
+  options: ['''L1CA''', '''E1B''']
+  option_labels: [GPS L1 C/A, Galileo E1-B]
 - {id: pll_bw, label: PLL bandwidth (Hz), dtype: real, default: '18.0'}
 - {id: dll_bw, label: DLL bandwidth (Hz), dtype: real, default: '2.0'}
-- {id: obs_every_ms, label: Observable every (ms), dtype: int, default: '1000', hide: part}
+- {id: obs_every_ms, label: Observable every (periods), dtype: int, default: '1000', hide: part}
 - {id: pll_bw_narrow, label: PLL bandwidth after bit sync (Hz), dtype: real, default: '15.0'}
 - {id: dll_bw_narrow, label: DLL bandwidth after bit sync (Hz), dtype: real, default: '0.5'}
 - {id: coherent_ms, label: Coherent integration after bit sync (ms), dtype: int, default: '20'}

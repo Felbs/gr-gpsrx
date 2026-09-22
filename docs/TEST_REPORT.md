@@ -148,6 +148,40 @@ and measured: no gain at any C/N0 or initial error; kept as an off-by-default op
 **6. The walkthrough** - `docs/WALKTHROUGH.md`, the receiver one block at a time, six figures from
 synthetic satellites (`util/make_figures.py`). **7.** An announcement draft, not posted.
 
+## The "not done" list, done (22 September, evening)
+
+**Third-order PLL** for the narrow stage (Kaplan & Hegarty form), both engines, default on. Synthetic
+satellite accelerating at 26 Hz/s (a car at 5 m/s^2): phase error 12 -> 7 degrees, lock 0.86 -> 0.96;
+at 50 Hz/s 22 -> 7 degrees. Real air: the static attic unchanged to the decimal (nothing
+accelerates); the 52 mph leg keeps five or more satellites in 42 fixes against 36. Test.
+
+**The timing product.** Every fix carries GPS TOW at its receive sample, the week (mod 1024), the
+sample clock's offset and drift (a 30 s fit) and the sample index of the next whole GPS second -
+a 1PPS on the sample clock. The RSPdx's drift reads **-796 ppb; numpy-gps measured this TCXO at
++796.7 ppb in July** (opposite sign convention): the same number to half a ppb from two
+receivers two months apart. Test: the solve returns GPS time to < 5 ns.
+
+**Galileo E1.** Codes (gnss-sdr's table, GPL-3, vendored), a BOC(1,1) code function with the
+subcarrier, quarter-chip correlators, 4 ms periods, one data symbol per period; the same Channel
+engine with a `signal` description; the same Acquisition block with `system=GAL` (125 Hz steps);
+a streaming I/NAV decoder (numpy-gps's Viterbi/deinterleaver/CRC/parser, incremental, page parts
+decoded as they complete, anchors on the even part's first symbol); the solver with a fifth unknown
+for the inter-system clock bias and each ephemeris's own mu. On the 4.096 MS/s wideband capture:
+acquisition finds six Galileo satellites (the same three strongest numpy-gps decoded, plus three);
+E1-B tracking locks at 0.97-0.98 with C/N0 42-44 dB-Hz; 11 of 11 page parts in 12 s, 5 pages
+CRC-clean, 0 failures, anchors on the GST second grid, WN 1405; and **a joint fix from 11 satellites
+(7 GPS + 4 Galileo), rms 4.1 m, PDOP 1.9, GST-GPS as this receiver sees it -111 ns**. Honestly:
+on this capture the joint solve has lower residuals (6.5 -> 4.8 m median) and the same position as
+GPS-only to 4 m, but MORE run scatter (8.9 vs 3.6 m) - the Galileo channels are first-stage only
+(no bit-length integration exists on E1-B), joined the solve late, and the extra unknown costs a
+degree of freedom. The gain will come from E1-C pilot tracking (100 ms coherent) - next. Galileo
+needs >= 4 MS/s (BOC main lobes at +-1.023 MHz) and Python channels so far (the C++ twin is L1 C/A).
+Tests: codes and BOC autocorrelation, the decoder on 12 s of real PRN 29 symbols, a page round trip
+through the encoder chain, a two-system synthetic solve recovering a 25 ns bias to a nanosecond.
+
+Found on the way: at 4.096 MS/s a code period (4096 samples; 16384 for Galileo) exceeds GNU
+Radio's default 8191-item buffer, so the feeding block's output buffer is enlarged by the apps.
+
 ## Defects found by testing (all fixed)
 
 1. Costas discriminator written as `atan2(Q, I)`: a 180-degree data flip read as a 165-degree phase error, the carrier slewed 100 Hz, every bit transition glitched. Must be `atan(Q/I)`. (Two hours.)

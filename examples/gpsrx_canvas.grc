@@ -113,6 +113,8 @@ blocks:
     settle_s: '0.5'
     hold: 'True'
     lo_search_hz: '0.0'
+    system: '''GPS'''
+    slot0: '0'
     comment: finds the satellites; assigns each to a Channel slot
   states:
     bus_sink: false
@@ -166,6 +168,7 @@ blocks:
     pll_bw: '18.0'
     dll_bw: '2.0'
     obs_every_ms: '1000'
+    signal: '''L1CA'''
     comment: 'slot 0: NCO, E/P/L, PLL, DLL; counts code epochs (Python)'
   states:
     bus_sink: false
@@ -230,6 +233,7 @@ blocks:
     pll_bw: '18.0'
     dll_bw: '2.0'
     obs_every_ms: '1000'
+    signal: '''L1CA'''
     comment: 'slot 2: NCO, E/P/L, PLL, DLL; counts code epochs (Python)'
   states:
     bus_sink: false
@@ -294,6 +298,7 @@ blocks:
     pll_bw: '18.0'
     dll_bw: '2.0'
     obs_every_ms: '1000'
+    signal: '''L1CA'''
     comment: 'slot 4: NCO, E/P/L, PLL, DLL; counts code epochs (Python)'
   states:
     bus_sink: false

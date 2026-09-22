@@ -13,10 +13,12 @@ documentation: 'The whole receiver in one block: Acquisition -> N x (Channel -> 
   Channel keeps up with a radio; the Python one is for replay and reading.'
 templates: {imports: from gnuradio import gpsrx, make: 'gpsrx.receiver(samp_rate=${samp_rate}, n_channels=${n_channels},
     interval_s=${interval_s}, threshold=${threshold}, iono_file=${iono_file}, fix_file=${fix_file}, hold=${hold},
-    engine=${engine}, eph_file=${eph_file}, smoothing=${smoothing}, kf_vel_sd=${kf_vel_sd}, lo_search_hz=${lo_search_hz})'}
+    engine=${engine}, eph_file=${eph_file}, smoothing=${smoothing}, kf_vel_sd=${kf_vel_sd}, lo_search_hz=${lo_search_hz},
+    n_galileo=${n_galileo})'}
 parameters:
 - {id: samp_rate, label: Sample rate, dtype: real, default: samp_rate}
 - {id: n_channels, label: Channels, dtype: int, default: '8'}
+- {id: n_galileo, label: Galileo E1-B channels (needs >= 4 MS/s; Python), dtype: int, default: '0'}
 - id: engine
   label: Channel engine
   dtype: enum

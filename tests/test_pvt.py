@@ -179,3 +179,25 @@ def test_the_solve_gives_gps_time_at_the_receive_sample():
     entries = [dict(prn=e["prn"], eph=e, t_sv=observe(rx, e, t_rx), cn0_db=45.0) for e in ephs]
     fx = pvt.solve(entries)
     assert abs(fx["t_rx"] - t_rx) < 5e-9, fx["t_rx"] - t_rx          # 5 ns = 1.5 m
+
+
+def test_two_systems_solve_with_an_inter_system_bias():
+    """Four GPS and three 'Galileo' satellites (the same orbit model, their own mu) whose clocks
+    run 25 ns ahead: the solver carries a fifth unknown and recovers the position to < 1 m and
+    the bias to a nanosecond."""
+    t0 = 302400.0
+    rx = llh_to_ecef(*RX_LLH)
+    t_rx = t0 + 100.0
+    ephs = visible(rx, constellation(t0, rx), t_rx)
+    rng = np.random.default_rng(1)
+    more = [dict(e, prn=e["prn"] + 20, mu=3.986004418e14, Omega0=e["Omega0"] + rng.uniform(-0.6, 0.6),
+                 M0=e["M0"] + rng.uniform(-0.6, 0.6)) for e in ephs[:3]]
+    more = visible(rx, more, t_rx)
+    assert len(ephs) >= 4 and len(more) >= 2, (len(ephs), len(more))
+    isb = 25e-9
+    entries = [dict(prn=e["prn"], eph=e, t_sv=observe(rx, e, t_rx), cn0_db=45.0, sys="GPS") for e in ephs]
+    entries += [dict(prn=e["prn"], eph=e, t_sv=observe(rx, e, t_rx) + isb, cn0_db=45.0, sys="GAL") for e in more]
+    fx = pvt.solve(entries)
+    assert np.linalg.norm(np.array(fx["ecef"]) - rx) < 1.0, fx["rms_m"]
+    assert fx["isb_s"] is not None and abs(fx["isb_s"] - isb) < 1e-9, fx["isb_s"]
+    assert fx["valid"]

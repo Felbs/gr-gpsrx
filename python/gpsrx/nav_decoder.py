@@ -21,7 +21,7 @@ import numpy as np
 import pmt
 from gnuradio import gr
 
-from . import nav
+from . import nav, nav_gal
 
 
 class nav_decoder(gr.sync_block):
@@ -31,6 +31,7 @@ class nav_decoder(gr.sync_block):
         self.message_port_register_out(pmt.intern("nav"))
         self.dec = None
         self.prn = 0
+        self.system = "GPS"
         self.k0 = 0                                   # stream index of the current assignment's period 0
         self._tag = pmt.intern("gpsrx_assign")
 
@@ -45,14 +46,35 @@ class nav_decoder(gr.sync_block):
             if self.dec is not None:
                 for j in range(pos, cut):
                     kept = self.dec.feed(float(x[j].real), r0 + j - self.k0)
-                    for sf, tow_next, words, _, _ in kept:
-                        self._publish(sf, tow_next)
+                    if self.system == "GAL":
+                        for wt, f in kept:
+                            self._publish_gal(wt)
+                    else:
+                        for sf, tow_next, words, _, _ in kept:
+                            self._publish(sf, tow_next)
             if d is not None:                             # a new assignment begins at `cut`
                 self.prn = int(d.get("prn", 0))
-                self.dec = nav.NavDecoder(self.prn) if self.prn else None
+                self.system = str(d.get("system", "GPS"))
+                self.dec = None
+                if self.prn:
+                    self.dec = nav_gal.INavDecoder(self.prn) if self.system == "GAL" else nav.NavDecoder(self.prn)
                 self.k0 = r0 + cut
             pos = cut
         return n
+
+    def _publish_gal(self, wt):
+        d = self.dec
+        msg = dict(slot=self.slot, prn=self.prn, system="GAL", word=int(wt), n_pages=d.n_crc, crc_fail=d.n_crc_fail,
+                   complete=bool(d.complete), n_subframes=d.n_crc, subframe=int(wt), tow=float(d.anchors[-1][1]) if d.anchors else -1.0,
+                   anchor=[int(d.anchors[-1][0]), float(d.anchors[-1][1])] if d.anchors else [0, -1.0], rejected=d.n_crc_fail)
+        if d.complete:
+            msg["eph"] = {k: (float(v) if isinstance(v, (int, float)) else v) for k, v in d.eph.items() if k not in ("sys",)}
+            msg["eph"]["sys"] = "GAL"
+        if d.ggto:
+            msg["ggto"] = {k: float(v) for k, v in d.ggto.items()}
+        if d.wn is not None:
+            msg["wn"] = int(d.wn)
+        self.message_port_pub(pmt.intern("nav"), pmt.to_pmt(msg))
 
     def _publish(self, sf, tow_next):
         d = self.dec

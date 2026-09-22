@@ -115,6 +115,7 @@ blocks:
     smoothing: '100'
     kf_vel_sd: '4.0'
     lo_search_hz: '0.0'
+    n_galileo: '0'
     comment: Acquisition -> 8 x (Channel -> Nav Decoder) -> PVT
   states:
     bus_sink: false

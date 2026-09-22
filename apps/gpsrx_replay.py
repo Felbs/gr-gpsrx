@@ -33,6 +33,7 @@ def main():
     ap.add_argument("--start", type=float, default=0.5)
     ap.add_argument("--secs", type=float, default=0.0, help="0 = whole file")
     ap.add_argument("--channels", type=int, default=8)
+    ap.add_argument("--galileo", type=int, default=0, help="Galileo E1-B channels (Python; needs >= 4 MS/s)")
     ap.add_argument("--interval", type=float, default=20.0, help="seconds of stream between searches")
     ap.add_argument("--fix-file", default=os.path.join(HERE, "..", "lab_local", "fix_replay.json"))
     ap.add_argument("--iono-file", default=os.path.join(HERE, "..", "lab_local", "iono_terms.json"))
@@ -51,10 +52,14 @@ def main():
     src = blocks.file_source(gr.sizeof_short, a.capture, False, int(a.start * a.rate) * 2,
                              int(a.secs * a.rate) * 2 if a.secs else 0)
     to_c = blocks.interleaved_short_to_complex(False, False, 32768.0)
+    # a channel consumes whole code periods - 4096 samples per ms at 4.096 MS/s, 16384 for a Galileo
+    # period - and GNU Radio's default buffer holds 8191 items: the feeding block must offer more
+    to_c.set_min_output_buffer(int(16 * a.rate * 4e-3))
     rx = gpsrx.receiver(a.rate, n_channels=a.channels, interval_s=a.interval,
                         iono_file=a.iono_file, fix_file=a.fix_file, hold=True, eph_file=a.eph_file,
                         pll_bw_narrow=a.pll_narrow, dll_bw_narrow=a.dll_narrow, coherent_ms=a.coherent_ms,
-                        smoothing=a.smoothing, kf_vel_sd=a.kf_vel_sd, lo_search_hz=a.lo_search, pll_order=a.pll_order)      # replay: stop time while searching
+                        smoothing=a.smoothing, kf_vel_sd=a.kf_vel_sd, lo_search_hz=a.lo_search, pll_order=a.pll_order,
+                        n_galileo=a.galileo)      # replay: stop time while searching
     st = gpsrx.status_sink(every_s=2.0, log_file=a.log)
     tb.connect(src, to_c, rx)
     for port in ("sky", "status", "obs", "nav", "fix"):

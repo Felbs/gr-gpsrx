@@ -44,6 +44,7 @@ def main():
     ap.add_argument("--settings", action="append", default=[], metavar="KEY=VALUE", help="device-level settings")
     ap.add_argument("--seconds", type=float, default=600.0)
     ap.add_argument("--channels", type=int, default=8)
+    ap.add_argument("--galileo", type=int, default=0, help="Galileo E1-B channels (Python; needs >= 4 MS/s)")
     ap.add_argument("--interval", type=float, default=20.0)
     ap.add_argument("--fix-file", default=os.path.join(HERE, "..", "lab_local", "live.json"))
     ap.add_argument("--eph-file", default=os.path.join(HERE, "..", "lab_local", "eph_live.json"))
@@ -67,6 +68,7 @@ def main():
         src.set_frequency(0, 1575.42e6)
         src.set_gain_mode(0, bool(a.agc))
         src.set_gain(0, a.gain)
+        src.set_min_output_buffer(int(16 * a.rate * 4e-3))     # whole code periods per work() call
         settings = list(a.settings) + (["biasT_ctrl=true"] if a.bias_t else [])
         for kv in settings:
             k, v = kv.split("=", 1)
@@ -74,7 +76,7 @@ def main():
             print(f"setting {k} = {src.read_setting(k) if hasattr(src, 'read_setting') else v}", flush=True)
         rx = gpsrx.receiver(a.rate, n_channels=a.channels, interval_s=a.interval, iono_file=a.iono_file,
                             fix_file=a.fix_file, eph_file=a.eph_file, hold=False, engine="cpp",
-                            pll_bw_narrow=a.pll_narrow, smoothing=a.smoothing, kf_vel_sd=a.kf_vel_sd, lo_search_hz=a.lo_search, pll_order=a.pll_order)
+                            pll_bw_narrow=a.pll_narrow, smoothing=a.smoothing, kf_vel_sd=a.kf_vel_sd, lo_search_hz=a.lo_search, pll_order=a.pll_order, n_galileo=a.galileo)
         st = gpsrx.status_sink(every_s=a.every, log_file=a.log)
         tb.connect(src, rx)
         for port in ("sky", "status", "obs", "nav", "fix"):

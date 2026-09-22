@@ -31,7 +31,8 @@ from . import acquire
 
 class acquisition(gr.sync_block):
     def __init__(self, samp_rate=2.048e6, n_slots=8, snapshot_ms=110, interval_s=20.0, threshold=2.5,
-                 n_noncoh=100, prns=None, hold=False, settle_s=0.5, lo_search_hz=0.0, doppler_max=7000.0):
+                 n_noncoh=100, prns=None, hold=False, settle_s=0.5, lo_search_hz=0.0, doppler_max=7000.0,
+                 system="GPS", slot0=0):
         gr.sync_block.__init__(self, name="gpsrx_acquisition", in_sig=[np.complex64], out_sig=None)
         self.fs = float(samp_rate)
         # hold: stop the stream while a search runs. For REPLAY: a file source runs as fast as its
@@ -46,17 +47,25 @@ class acquisition(gr.sync_block):
         self.doppler_max = float(doppler_max)
         self.lo_offset_hz = None
         self.n_slots = int(n_slots)
+        # system: 'GPS' (L1 C/A) or 'GAL' (E1-B: 4 ms BOC replicas, PRN 1..36); slot0: the first
+        # channel slot this instance owns, so a GPS and a Galileo Acquisition can share one assign wire
+        self.system = str(system).upper()
+        self.slot0 = int(slot0)
+        self.signal = None
+        if self.system == "GAL":
+            from . import gale1
+            self.signal = gale1.SIGNAL_E1B
         self.snap_n = int(round(self.fs * snapshot_ms * 1e-3))
         self.interval = float(interval_s)
         self.threshold = float(threshold)
         self.n_noncoh = int(n_noncoh)
-        self.prns = list(prns) if prns else acquire.ALL_PRNS
+        self.prns = list(prns) if prns else (list(range(1, 37)) if self.system == "GAL" else acquire.ALL_PRNS)
         self.message_port_register_in(pmt.intern("status"))
         self.set_msg_handler(pmt.intern("status"), self.on_status)
         self.message_port_register_out(pmt.intern("sky"))
         self.message_port_register_out(pmt.intern("assign"))
         self._lock = threading.Lock()
-        self.slots = {s: 0 for s in range(self.n_slots)}          # slot -> prn (0 = free)
+        self.slots = {s: 0 for s in range(self.slot0, self.slot0 + self.n_slots)}   # slot -> prn (0 = free)
         self._buf, self._buf_start, self._filled = None, 0, 0
         self._next_at = float(settle_s)                            # stream time (s) of the next snapshot: a tuner is still settling at 0
         self._worker = None
@@ -69,6 +78,8 @@ class acquisition(gr.sync_block):
             return
         with self._lock:
             s = int(d["slot"])
+            if s not in self.slots:
+                return
             if d.get("what") in ("lost", "idle"):
                 self.slots[s] = 0
             elif d.get("what") == "tracking":
@@ -111,7 +122,7 @@ class acquisition(gr.sync_block):
             if n:
                 self.lo_offset_hz = off
         found = acquire.sky(xs, self.fs, threshold=self.threshold, n_noncoh=self.n_noncoh, prns=self.prns,
-                            centre_hz=self.lo_offset_hz or 0.0,
+                            signal=self.signal, centre_hz=self.lo_offset_hz or 0.0,
                             # the median of the found satellites can sit 5 kHz from the LO, a satellite
                             # another 5 kHz beyond it: widen the window once an offset is in use
                             doppler_max=self.doppler_max + (3000.0 if self.lo_offset_hz else 0.0))
@@ -125,7 +136,7 @@ class acquisition(gr.sync_block):
         # search's own duration has already gone by: start_sample=0 means 'now'.
         start_sample = int(s0 + self.snap_n + 0.25 * self.fs) if self.hold else 0
         self.message_port_pub(pmt.intern("sky"), pmt.to_pmt(dict(
-            sample0=int(s0), seconds=float(time.time() - t), birds=found, search=self.n_searches,
+            sample0=int(s0), seconds=float(time.time() - t), birds=found, search=self.n_searches, system=self.system,
             lo_offset_hz=float(self.lo_offset_hz or 0.0))))
         with self._lock:
             tracked = {p for p in self.slots.values() if p}
@@ -139,4 +150,4 @@ class acquisition(gr.sync_block):
                 self.slots[s] = r["prn"]                        # claimed until the channel says otherwise
                 self.message_port_pub(pmt.intern("assign"), pmt.to_pmt(dict(
                     slot=s, prn=int(r["prn"]), doppler_hz=float(r["doppler_hz"]), sample=float(r["sample"]),
-                    metric=float(r["metric"]), start_sample=start_sample)))
+                    metric=float(r["metric"]), start_sample=start_sample, system=self.system)))

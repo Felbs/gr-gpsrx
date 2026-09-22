@@ -51,7 +51,7 @@ def build_replay():
     y = 220
     b = source(y) + [
         blk("rx", "gpsrx_receiver", 560, y - 40, samp_rate="samp_rate", n_channels=8, interval_s=100.0, threshold=2.5,
-            iono_file='""', fix_file="fix_file", hold="True", engine="'auto'", eph_file='""', smoothing=100, kf_vel_sd=4.0, lo_search_hz=0.0,
+            iono_file='""', fix_file="fix_file", hold="True", engine="'auto'", eph_file='""', smoothing=100, kf_vel_sd=4.0, lo_search_hz=0.0, n_galileo=0,
             comment="Acquisition -> 8 x (Channel -> Nav Decoder) -> PVT"),
         blk("status", "gpsrx_status", 900, y - 40, every_s=2.0, log_file='""',
             comment="quality only; the position goes to the fix file"),
@@ -67,7 +67,7 @@ def build_canvas(n=6):
     y = 300
     b = source(y) + [
         blk("acq", "gpsrx_acquisition", 560, y - 200, samp_rate="samp_rate", n_slots=n, interval_s=100.0,
-            threshold=2.5, n_noncoh=100, snapshot_ms=110, settle_s=0.5, hold="True", lo_search_hz=0.0,
+            threshold=2.5, n_noncoh=100, snapshot_ms=110, settle_s=0.5, hold="True", lo_search_hz=0.0, system="'GPS'", slot0=0,
             comment="finds the satellites; assigns each to a Channel slot"),
         blk("pvt", "gpsrx_pvt", 1300, y + 60 * n, samp_rate="samp_rate", average=15, iono_file='""',
             fix_file="fix_file", eph_file='""', smoothing=100, kf_vel_sd=4.0,
@@ -79,7 +79,7 @@ def build_canvas(n=6):
     for s in range(n):
         yy = y + 120 * s
         b.append(blk(f"ch{s}", "gpsrx_channel_cc" if s % 2 else "gpsrx_channel", 720, yy, samp_rate="samp_rate", slot=s,
-                     pll_bw=18.0, dll_bw=2.0, obs_every_ms=1000,
+                     pll_bw=18.0, dll_bw=2.0, obs_every_ms=1000, **({} if s % 2 else {"signal": "'L1CA'"}),
                      comment=f"slot {s}: NCO, E/P/L, PLL, DLL; counts code epochs" + (" (C++)" if s % 2 else " (Python)")))
         b.append(blk(f"nav{s}", "gpsrx_nav_decoder", 1020, yy, slot=s, comment="bits -> words -> subframes -> anchor"))
         c += [["to_c", "0", f"ch{s}", "0"], ["acq", "assign", f"ch{s}", "assign"], [f"ch{s}", "status", "acq", "status"],
@@ -95,7 +95,7 @@ def build_replay_qt():
     y = 220
     b = source(y) + [
         blk("rx", "gpsrx_receiver", 560, y - 40, samp_rate="samp_rate", n_channels=8, interval_s=100.0, threshold=2.5,
-            iono_file='""', fix_file="fix_file", hold="True", engine="'auto'", eph_file='""', smoothing=100, kf_vel_sd=4.0, lo_search_hz=0.0),
+            iono_file='""', fix_file="fix_file", hold="True", engine="'auto'", eph_file='""', smoothing=100, kf_vel_sd=4.0, lo_search_hz=0.0, n_galileo=0),
         blk("panel", "gpsrx_sky_panel", 900, y - 40, label='"GPS receiver (replay)"', private="private", gui_hint="0,0,1,1"),
         blk("private", "parameter", 1240, 12, label="Private view (screenshots)", type="intx", value="0", short_id="p"),
     ]
@@ -127,7 +127,7 @@ def build_radio_qt():
             agc0=True, settings0="settings", minoutbuf=str(1 << 22),
             comment="L1 C/A: 1575.42 MHz. GPS is under the noise, so the AGC only sees noise - and that is fine"),
         blk("rx", "gpsrx_receiver", 560, y - 40, samp_rate="samp_rate", n_channels=8, interval_s=20.0, threshold=2.5,
-            iono_file='""', fix_file="fix_file", hold="False", engine="'cpp'", eph_file='""', smoothing=100, kf_vel_sd=4.0, lo_search_hz="lo_search",
+            iono_file='""', fix_file="fix_file", hold="False", engine="'cpp'", eph_file='""', smoothing=100, kf_vel_sd=4.0, lo_search_hz="lo_search", n_galileo=0,
             comment="live needs the C++ Channel (util/build_win.cmd, or cmake on Linux)"),
         blk("spectrum", "qtgui_freq_sink_x", 330, y - 260, type="complex", name='"L1 baseband (the signal is below the noise)"',
             fftsize=1024, fc=0, bw="samp_rate", average=0.02, gui_hint="0,0,1,1"),
