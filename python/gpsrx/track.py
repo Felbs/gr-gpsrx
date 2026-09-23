@@ -110,6 +110,17 @@ class Channel:
         self.slips = 0                         # grid slips seen in stage 2 (samples missing from the stream)
         self._flips2 = np.zeros(self.bit_periods, dtype=np.int64)
         self._mon_count = 0
+        # scintillation indices over 60 s blocks (numpy-gps's scint.py): S4 = std(P)/mean(P) of the
+        # prompt power per period; sigma_phi = std of the PLL's residual phase error (rad) per loop
+        # update - the phase jitter the loop did NOT track, i.e. high-passed at the loop bandwidth,
+        # a proxy for the ICD's detrended sigma_phi. Quiet mid-latitude: S4 < 0.1; an attic full
+        # of multipath reads 0.5+ (measured) - the index is honest about the antenna as well as the sky
+        self.s4, self.sigma_phi = None, None
+        self._sc_n_target = 60000                             # periods per block: set from T below
+        self._sc_p1 = self._sc_p2 = 0.0
+        self._sc_n = 0
+        self._sc_e1 = self._sc_e2 = 0.0
+        self._sc_ne = 0
         # FLL-assisted pull-in (gnss-sdr's enable_fll_pull_in): for the first fll_periods a
         # frequency discriminator on consecutive prompts - atan(cross/dot), blind to the data
         # sign like the Costas one - nudges the NCO frequency. A PLL cannot pull in a carrier
@@ -132,6 +143,7 @@ class Channel:
         self.spacing = float(spacing)
         self.open_loop = bool(open_loop)
         self.T = self.code_len / self.code_rate0            # nominal period: 1 ms GPS, 4 ms Galileo
+        self._sc_n_target = int(round(60.0 / self.T))       # scintillation block: 60 s of periods
         self.pll_t1, self.pll_t2 = loop_gains(pll_bw, k=0.25)   # atan/2pi is +-1/4 cycle full scale
         self.dll_t1, self.dll_t2 = loop_gains(dll_bw)
         self.doppler0 = float(doppler_hz)
@@ -285,6 +297,30 @@ class Channel:
             else:
                 self.carr_corr += (self.pll_t2 * (e_pll - s.pll_e_prev) + dt_loop * e_pll) / self.pll_t1
             s.pll_e_prev = e_pll
+            if self.bit_offset is not None:
+                # scintillation, per 60 s block, from the coherent-window power (20 ms: what S4 is
+                # defined on) and the loop's residual phase error. Thermal noise alone gives an S4
+                # of sqrt(1 / (C/N0 x T)) - 0.25 on 1 ms prompts at 45 dB-Hz, 0.04 on 20 ms - so the
+                # noise part, from the measured C/N0 (Van Dierendonck 1993), is taken out
+                pw = ip_ * ip_ + qp_ * qp_
+                self._sc_p1 += pw
+                self._sc_p2 += pw * pw
+                self._sc_n += self.coh
+                self._sc_e1 += e_pll * 2 * np.pi
+                self._sc_e2 += (e_pll * 2 * np.pi) ** 2
+                self._sc_ne += 1
+                if self._sc_n >= self._sc_n_target:
+                    nw = self._sc_ne
+                    m = self._sc_p1 / nw
+                    v = max(self._sc_p2 / nw - m * m, 0.0)
+                    cn0_lin = 10 ** (s.cn0_db / 10) if s.cn0_db > 0 else 1.0
+                    tw = self.coh * self.T
+                    s4n2 = (1.0 / (cn0_lin * tw)) * (1.0 + 1.0 / (2.0 * cn0_lin * tw))
+                    self.s4 = float(np.sqrt(max(v / (m * m) - s4n2, 0.0))) if m > 0 else None
+                    me = self._sc_e1 / nw
+                    self.sigma_phi = float(np.sqrt(max(self._sc_e2 / nw - me * me, 0.0)))
+                    self._sc_p1 = self._sc_p2 = self._sc_e1 = self._sc_e2 = 0.0
+                    self._sc_n = self._sc_ne = 0
             s.carrier_hz = self.doppler0 + self.carr_corr
             # 4. DLL: normalised early-minus-late envelope, error in chips, the same filter,
             #    carrier-aided (the carrier loop already knows the Doppler; this trims the residual)
@@ -439,7 +475,8 @@ class Channel:
         return {"prn": self.prn, "epochs": s.epochs, "code_phase": s.code_phase, "carrier_hz": s.carrier_hz,
                 "samples_in": s.samples_in, "epoch_sample": s.samples_in - overshoot_samples, "lock": s.lock,
                 "cn0_db": s.cn0_db, "carrier_cycles": s.carrier_cycles - s.carrier_hz * overshoot_samples / self.fs,
-                "period_s": self.T, "sys": "GAL" if self.sig["name"] in ("E1B", "E1") else "GPS"}
+                "period_s": self.T, "sys": "GAL" if self.sig["name"] in ("E1B", "E1") else "GPS",
+                "s4": self.s4, "sigma_phi": self.sigma_phi}
 
 
 def track_array(x, fs, prn, doppler_hz, code_phase_samples, n_ms, **kw):

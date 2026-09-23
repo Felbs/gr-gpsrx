@@ -65,6 +65,9 @@ public:
     double carrier_cycles = 0.0;    // accumulated NCO phase in cycles: the carrier-phase observable
     int bit_offset = -1;            // period index (mod 20) at which a data bit begins; -1 = stage 1
     int slips = 0;                  // stage-2 grid slips seen (whole code periods missing from the stream)
+    // scintillation indices per 60 s block (track.py): S4 of the prompt power, sigma_phi (rad) of the
+    // PLL's residual phase error per loop update; < 0 until the first block completes
+    double s4 = -1.0, sigma_phi = -1.0;
     int code_len = CODE_LEN;        // 1023 GPS, 4092 Galileo
     double period_s() const { return code_len / CODE_RATE; }
     std::string sys = "GPS";
@@ -100,6 +103,8 @@ private:
     void monitor_grid(double ip);   // stage 2: has the bit / secondary-code grid slipped?
     int64_t flips2_[32] = { 0 };
     int mon_count_ = 0;
+    double sc_p1_ = 0.0, sc_p2_ = 0.0, sc_e1_ = 0.0, sc_e2_ = 0.0;
+    int64_t sc_n_ = 0, sc_ne_ = 0, sc_target_ = 60000;
 };
 
 class channel_cc_impl : public channel_cc

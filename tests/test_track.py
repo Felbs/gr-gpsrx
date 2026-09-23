@@ -177,3 +177,30 @@ def test_a_missing_code_period_is_seen_as_a_grid_slip():
     assert 2.2 < slip_at < 3.3, slip_at                                # found within two 300-period looks at the histogram
     assert ch.slips == 1 and ch.bit_offset == (off_before - 1) % 20, (ch.slips, off_before, ch.bit_offset)
     assert ch.s.lock > 0.9 and abs(ch.s.carrier_hz - tr["doppler_hz"]) < 2.0
+
+
+def test_scintillation_index_s4_of_a_fading_satellite():
+    """The channel reports S4 (std/mean of the prompt power over a 60 s block) and sigma_phi (the
+    PLL's residual phase jitter, rad). A synthetic satellite whose amplitude is modulated
+    1 + 0.5 sin(2 pi 0.7 t) has a known S4 (from the same modulation); an unfaded one at 45 dB-Hz
+    reads S4 below 0.1 - the quiet-ionosphere level (numpy-gps's scint.py). To keep the test
+    short the block is 6 s, not 60 (the engine's block length is a parameter of the run, not of
+    the physics)."""
+    from gpsrx import synth, track
+    fs = 2.048e6
+    for depth in (0.0, 0.5):
+        x, tr = synth.satellite(21, fs, 6.5, doppler_hz=-600.0, code_phase_samples=1200, cn0_dbhz=45.0, seed=8,
+                                fade_depth=depth, fade_hz=0.7)
+        ch = track.Channel(21, fs, -590.0, 1200, pll_bw=18.0, dll_bw=2.0, pll_bw_narrow=15.0, dll_bw_narrow=0.5, coherent_ms=20)
+        ch._sc_n_target = 6000
+        pos = 0
+        while pos + ch.samples_needed() <= len(x):
+            n = ch.samples_needed()
+            ch.step(x[pos:pos + n])
+            pos += n
+        assert ch.s4 is not None and ch.sigma_phi is not None, (ch.s4, ch.sigma_phi)
+        if depth == 0.0:
+            assert ch.s4 < 0.1, ch.s4
+        else:
+            assert abs(ch.s4 - tr["s4"]) < 0.06, (ch.s4, tr["s4"])          # the fade's own S4 (~0.35)
+        assert 0.0 <= ch.sigma_phi < 0.3, ch.sigma_phi                    # rad: a locked loop

@@ -114,6 +114,7 @@ All of it is in `docs/TEST_REPORT.md`; the headlines, no coordinates anywhere:
 - **Time:** the sample clock's drift reads -796 ppb; numpy-gps measured the same TCXO at 796.7 ppb two months earlier.
 - **Sensitivity** (synthetic): tracks and decodes to 34 dB-Hz. **Determinism:** two replays 0.000000 m apart.
 - **RINEX 3:** observations and ephemerides written for RTKLIB and others; read back by georinex and re-solved from the file alone to 1.6 m of the receiver's own fixes.
+- **Scintillation:** S4 and sigma_phi per satellite per minute (noise-corrected, on 20 ms power); the July attic reads S4 0.07-0.24 - a quiet ionosphere, a little multipath.
 - **Stream integrity:** a missing code period (invisible to the loops and the solver) is caught by the bit grid moving; the receiver resyncs and its GPS time steps by exactly the lost millisecond.
 - **Tests:** 30 engine tests (no GNU Radio), 7 flowgraph QA; CI on Ubuntu 24.04 against the distribution's GNU Radio.
 

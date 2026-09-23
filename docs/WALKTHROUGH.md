@@ -94,7 +94,10 @@ sample at which the last code epoch arrived, is the whole of what the position s
 it. There is no millisecond ambiguity to search over, ever: once one period has been anchored to
 a time of week (next block), every later period is exactly one more millisecond of that
 satellite's clock. The `obs` message carries `epochs`, `epoch_sample`, `carrier_hz`,
-`carrier_cycles` (the NCO's accumulated phase: the carrier-phase observable), `cn0_db` and `lock`.
+`carrier_cycles` (the NCO's accumulated phase: the carrier-phase observable), `cn0_db`, `lock`,
+and once a minute `s4` and `sigma_phi` - the scintillation indices, the amplitude and phase
+flicker of the signal after the thermal-noise part is taken out: a disturbed ionosphere reads
+above 0.3 on every high satellite at once; a single faded satellite is multipath.
 
 ![tracking through pull-in and the two stages](img/walk_3_tracking.png)
 

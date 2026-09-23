@@ -17,11 +17,14 @@ from .cacode import CODE_LEN, CODE_RATE, L1_HZ, code_at
 
 
 def satellite(prn, fs, secs, doppler_hz=1234.5, code_phase_samples=700, cn0_dbhz=45.0, bits=None,
-              carrier_phase=0.3, seed=1, code_doppler=True, noise=True, doppler_rate_hz_s=0.0, system="GPS"):
+              carrier_phase=0.3, seed=1, code_doppler=True, noise=True, doppler_rate_hz_s=0.0, system="GPS",
+              fade_depth=0.0, fade_hz=0.7):
     """Baseband complex64 samples. Noise power 1 per sample (complex); signal power set from C/N0
     at this sample rate. `bits`: array of +-1 at 50 bit/s (random if None). Returns (x, truth).
     system="GAL": a Galileo E1 satellite instead - E1-B x 250 symbol/s data plus E1-C x its 25-chip
-    secondary code, half the power each, both with the BOC(1,1) subcarrier (needs fs >= 4 MS/s)."""
+    secondary code, half the power each, both with the BOC(1,1) subcarrier (needs fs >= 4 MS/s).
+    fade_depth m > 0: the amplitude is modulated 1 + m sin(2 pi fade_hz t) - a scintillating (or
+    multipath-faded) satellite; the power's S4 = std/mean is then known (truth["s4"])."""
     rng = np.random.default_rng(seed)
     n = int(round(fs * secs))
     t = np.arange(n) / fs
@@ -52,12 +55,15 @@ def satellite(prn, fs, secs, doppler_hz=1234.5, code_phase_samples=700, cn0_dbhz
         bit_of_sample = np.floor(np.maximum(ph, 0) / (20 * CODE_LEN)).astype(np.int64)      # 20 code periods per bit
         data = bits[np.minimum(bit_of_sample, len(bits) - 1)]
         modulated = code * data
-    sig = amp * modulated * np.exp(1j * (carrier_phase + 2 * np.pi * (doppler_hz * t + doppler_rate_hz_s * t * t / 2.0)))
+    fade = 1.0 + fade_depth * np.sin(2 * np.pi * fade_hz * t) if fade_depth else 1.0
+    sig = amp * fade * modulated * np.exp(1j * (carrier_phase + 2 * np.pi * (doppler_hz * t + doppler_rate_hz_s * t * t / 2.0)))
+    s4 = float(np.std(fade ** 2) / np.mean(fade ** 2)) if fade_depth else 0.0
     if noise:
         sig = sig + (rng.standard_normal(n) + 1j * rng.standard_normal(n)) / np.sqrt(2)
     x = sig.astype(np.complex64) if noise else sig
     truth = {"prn": prn, "fs": fs, "doppler_hz": doppler_hz, "doppler_rate_hz_s": doppler_rate_hz_s, "code_phase_samples": code_phase_samples,
-             "code_rate": rate, "cn0_dbhz": cn0_dbhz, "bits": bits, "carrier_phase": carrier_phase, "amp": amp, "system": system}
+             "code_rate": rate, "cn0_dbhz": cn0_dbhz, "bits": bits, "carrier_phase": carrier_phase, "amp": amp, "system": system,
+             "s4": s4}
     return x, truth
 
 

@@ -186,7 +186,7 @@ class sky_panel(gr.basic_block, QtWidgets.QWidget):
             txt = f"slot {s}: {sysl}{c['prn']:02d}" if not self.private else f"slot {s}: {sysl}--"
             if o:
                 txt += f"  lock {o['lock']:.2f}  C/N0 {o.get('cn0_db', 0):4.1f}" + (f"  {o['carrier_hz']:+7.1f} Hz" if not self.private else "") \
-                    + f"  {o['epochs'] / 1000:4.0f} s"
+                    + f"  {o['epochs'] / 1000:4.0f} s" + (f"  S4 {o['s4']:.2f}" if o.get("s4") is not None else "")
             if nv:
                 txt += f"  subframes {nv['n_subframes']:2d}" + ("  ephemeris" if nv.get("complete") else "")
             lines.append(txt)

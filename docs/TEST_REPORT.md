@@ -311,6 +311,27 @@ The live app also keeps the law's own accounting - the radio's item count agains
 printed every report. The count advances in scheduler chunks (+-100 ms of jitter, measured), so a
 loss is read as a step in the deficit's floor, not from one reading.
 
+## Scintillation indices (22 September, night)
+
+Every channel now reports, per 60 s block, **S4** (the amplitude scintillation index: std/mean of
+the coherent-window prompt power) and **sigma_phi** (the standard deviation of the PLL's residual
+phase error, in radians - the phase jitter the loop did not track, i.e. high-passed at the loop
+bandwidth; a proxy for the ICD's detrended sigma_phi, not the same thing). They travel in `obs`
+(`s4`, `sigma_phi`) and print in the status table and the Sky Panel. The first version computed
+S4 on 1 ms prompts and read 0.25 on a clean synthetic satellite at 45 dB-Hz: thermal noise alone
+gives S4 = sqrt(1 / (C/N0 x T)), which is why the index is defined on 20 ms and why the standard
+practice (Van Dierendonck 1993) subtracts the noise part from the measured C/N0; both are done,
+in both engines, and the same synthetic satellite now reads below 0.1 while one whose amplitude
+is modulated 1 + 0.5 sin(2 pi 0.7 t) reads its true S4 (0.35) to 0.06 (test).
+
+Real air, the July attic capture (130 s, one full block per channel): **S4 0.07-0.24, sigma_phi
+0.04-0.11 rad** across seven GPS and four Galileo satellites - a quiet mid-latitude ionosphere
+seen through an attic roof, with the strongest satellite (G27, 48 dB-Hz) the most faded at 0.24:
+multipath, not the sky. numpy-gps's July numbers on the same kind of capture (0.55-0.78) were 1 ms
+prompts without the noise correction; these are the honest ones. What the index is for: the
+space-weather probe - a disturbed ionosphere reads S4 above 0.3 on every high satellite at once,
+which multipath never does.
+
 ## RINEX 3 output (22 September, night)
 
 `--rinex-file run.obs` on either app (or `rinex_file` on the PVT / Receiver blocks) writes a

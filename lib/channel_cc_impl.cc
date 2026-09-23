@@ -106,6 +106,7 @@ tracker::tracker(int prn_, double fs_, double doppler_hz, double code_phase_samp
     loop_gains(pll_bw, 0.25, pll_t1_, pll_t2_); // atan/2pi is +-1/4 cycle full scale
     loop_gains(dll_bw, 1.0, dll_t1_, dll_t2_);
     n_nominal_ = (int)std::lround(fs * code_len / CODE_RATE);
+    sc_target_ = (int64_t)std::lround(60.0 / period_s());
 }
 
 int tracker::samples_needed() const
@@ -218,6 +219,30 @@ std::complex<double> tracker::step(const std::complex<float>* x, int n)
         carr_corr_ += (pll_t2_ * (e_pll - pll_e_prev) + dt_loop * e_pll) / pll_t1_;
     }
     pll_e_prev = e_pll;
+    if (bit_offset >= 0) {
+        // scintillation per 60 s block from the coherent-window power and the residual phase error,
+        // the thermal-noise part of S4 taken out from the measured C/N0 (track.py)
+        const double pw = ipw * ipw + qpw * qpw;
+        sc_p1_ += pw;
+        sc_p2_ += pw * pw;
+        sc_n_ += coh_;
+        sc_e1_ += e_pll * 2.0 * M_PI;
+        sc_e2_ += (e_pll * 2.0 * M_PI) * (e_pll * 2.0 * M_PI);
+        sc_ne_++;
+        if (sc_n_ >= sc_target_) {
+            const double nw = (double)sc_ne_;
+            const double m = sc_p1_ / nw;
+            const double v = std::max(sc_p2_ / nw - m * m, 0.0);
+            const double cn0_lin = cn0_db > 0 ? std::pow(10.0, cn0_db / 10.0) : 1.0;
+            const double tw = coh_ * period_s();
+            const double s4n2 = (1.0 / (cn0_lin * tw)) * (1.0 + 1.0 / (2.0 * cn0_lin * tw));
+            s4 = m > 0 ? std::sqrt(std::max(v / (m * m) - s4n2, 0.0)) : -1.0;
+            const double me = sc_e1_ / nw;
+            sigma_phi = std::sqrt(std::max(sc_e2_ / nw - me * me, 0.0));
+            sc_p1_ = sc_p2_ = sc_e1_ = sc_e2_ = 0.0;
+            sc_n_ = sc_ne_ = 0;
+        }
+    }
     carrier_hz = doppler0_ + carr_corr_;
     // 4. DLL: normalised early-minus-late envelope, carrier-aided code rate
     const double Em = std::abs(Ew), Lm = std::abs(Lw);
@@ -592,6 +617,8 @@ int channel_cc_impl::general_work(int noutput_items,
             d = pmt::dict_add(d, pmt::mp("sample_abs"), pmt::from_long((long)(t0_abs_ + eng_->samples_in)));
             d = pmt::dict_add(d, pmt::mp("slot"), pmt::from_long(slot_));
             d = pmt::dict_add(d, pmt::mp("period_s"), pmt::from_double(eng_->period_s()));
+            d = pmt::dict_add(d, pmt::mp("s4"), eng_->s4 >= 0 ? pmt::from_double(eng_->s4) : pmt::PMT_NIL);
+            d = pmt::dict_add(d, pmt::mp("sigma_phi"), eng_->sigma_phi >= 0 ? pmt::from_double(eng_->sigma_phi) : pmt::PMT_NIL);
             d = pmt::dict_add(d, pmt::mp("sys"), pmt::string_to_symbol(eng_->sys));
             message_port_pub(pmt::mp("obs"), d);
         }

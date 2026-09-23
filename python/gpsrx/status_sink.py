@@ -105,6 +105,8 @@ class status_sink(gr.basic_block):
                 txt = f" slot {s}: {'E' if (c.get('obs') or {}).get('sys') == 'GAL' else 'G'}{c['prn']:02d}"
                 if o:
                     txt += f"  lock {o['lock']:.2f}  C/N0 {o.get('cn0_db', 0):4.1f}  Doppler {o['carrier_hz']:+7.1f} Hz  {o['epochs'] / 1000:5.0f} s"
+                    if o.get("s4") is not None:                        # scintillation indices, per 60 s block
+                        txt += f"  S4 {o['s4']:.2f}" + (f" sig_phi {o['sigma_phi']:.2f} rad" if o.get("sigma_phi") is not None else "")
                 if nv:
                     txt += (f"  pages {nv['n_subframes']}" if nv.get("system") == "GAL" else f"  subframes {nv['n_subframes']}") + ("  EPH" if nv.get("complete") else "")
                     if nv.get("rejected"):
