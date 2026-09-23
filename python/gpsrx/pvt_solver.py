@@ -30,14 +30,14 @@ import numpy as np
 import pmt
 from gnuradio import gr
 
-from . import pvt
+from . import pvt, rinex
 
 EPH_VALID_S = 2.0 * 3600.0      # a broadcast ephemeris is fitted for +-2 h about its toe
 
 
 class pvt_solver(gr.basic_block):
     def __init__(self, samp_rate=2.048e6, average=15, iono_file="", fix_file="", min_interval_s=1.0, eph_file="",
-                 smoothing=100, kf_vel_sd=4.0):
+                 smoothing=100, kf_vel_sd=4.0, rinex_file=""):
         gr.basic_block.__init__(self, name="gpsrx_pvt", in_sig=None, out_sig=None)
         self.fs = float(samp_rate)
         self.average = int(average)
@@ -91,6 +91,11 @@ class pvt_solver(gr.basic_block):
         self._time_hist = []
         self.n_resync = 0                   # stream discontinuities (samples lost) detected and recovered from
         self._clock_prev = None             # (epoch_sample, clock_offset_s, drift) of the last valid fix
+        # RINEX 3 output (rinex.py): the observables of every valid fix to <rinex_file>, the decoded
+        # ephemerides to the same name with .nav - for RTKLIB and anyone who wants to check our numbers
+        self.rinex_file = rinex_file or ""
+        self.rinex = rinex.ObsWriter(self.rinex_file) if self.rinex_file else None
+        self._rinex_eph = {}                # skey -> the latest complete ephemeris seen (GPS and Galileo)
 
     def _samples_lost(self, fx):
         """The stream-continuity watchdog (pvt.samples_lost): did the sample clock's offset from GPS
@@ -119,6 +124,15 @@ class pvt_solver(gr.basic_block):
             if d.get("complete") and "eph" in d:
                 ent["eph"] = dict(d["eph"], prn=int(d["prn"]))
                 ent["borrowed"] = False
+                if self.rinex is not None:
+                    e = dict(ent["eph"], sys=ent["sys"])
+                    if ent["sys"] == "GAL" and d.get("wn") is not None:
+                        e["WN"] = int(d["wn"])
+                    self._rinex_eph[skey] = e
+                    try:
+                        rinex.write_nav(os.path.splitext(self.rinex_file)[0] + ".nav", list(self._rinex_eph.values()))
+                    except OSError:
+                        pass
                 if self.eph_file:
                     self.eph_store[skey] = ent["eph"]
                     try:
@@ -261,6 +275,11 @@ class pvt_solver(gr.basic_block):
                     weights=fx["weights"], azel={str(p): list(v) for p, v in fx["azel"].items()}, isb_s=fx.get("isb_s"))))
                 return
             time_out = self._timing(fx) if fx["valid"] else {}
+            if self.rinex is not None and fx["valid"] and time_out.get("gps_week_mod1024") is not None:
+                try:
+                    self.rinex.add_epoch(rinex.full_week(time_out["gps_week_mod1024"]), fx["t_rx"], fx.get("observables", []))
+                except OSError:
+                    pass
             kf_out = None
             if self.kf is not None and fx["valid"]:
                 xk, reset = self.kf.update(fx["epoch_sample"] / self.fs, fx["ecef"], np.array(fx.get("cov_ecef")))

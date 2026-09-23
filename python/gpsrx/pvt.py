@@ -354,11 +354,21 @@ def fix_from_channels(channels, fs, iono=None, hatch=None, hatch_m=100):
     if len(entries) < 4:
         return None
     s_ref, entries = refer_to_common_sample(entries, fs)
+    raw = entries
     if hatch is not None and hatch_m > 1 and all("carrier_cycles" in e for e in entries):
         entries = hatch_smooth(entries, hatch, fs, s_ref, M=hatch_m)
     fx = solve(entries, iono=iono)
     fx["smoothed"] = {("E" if e.get("sys") == "GAL" else "") + str(e["prn"]): e.get("smoothed", 0) for e in entries}
     fx["epoch_sample"] = float(s_ref)
+    # the RAW observables at this instant, as a RINEX file wants them: the code pseudorange with
+    # the SV clock, ionosphere and troposphere still in it (t_rx from the solve is the epoch,
+    # so the receiver clock term is ~0), the carrier phase in cycles (increasing with range),
+    # the Doppler (positive = closing) and C/N0. rinex.py writes them.
+    fx["observables"] = [dict(sys=e.get("sys", "GPS"), prn=int(e["prn"]),
+                              pr_m=float(C * (fx["t_rx"] - e["t_sv"])),
+                              phase_cyc=float(-e.get("carrier_cycles", 0.0)),
+                              doppler_hz=float(e.get("carrier_hz", 0.0)),
+                              cn0_db=float(e.get("cn0_db", 0.0) or 0.0)) for e in raw]
     return fx
 
 

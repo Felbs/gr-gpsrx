@@ -311,6 +311,25 @@ The live app also keeps the law's own accounting - the radio's item count agains
 printed every report. The count advances in scheduler chunks (+-100 ms of jitter, measured), so a
 loss is read as a step in the deficit's floor, not from one reading.
 
+## RINEX 3 output (22 September, night)
+
+`--rinex-file run.obs` on either app (or `rinex_file` on the PVT / Receiver blocks) writes a
+RINEX 3.04 observation file - C1C, L1C, D1C, S1C for GPS (G) and Galileo (E) at every valid fix,
+epochs in GPS time - and `run.nav`, a mixed navigation file with every decoded ephemeris (GPS LNAV
+with IODE/IODC/TGD/URA/health, now parsed for it; Galileo I/NAV with the BGDs and the af0 unfolded
+to the broadcast value). The observables are the raw ones: the code pseudorange with SV clock,
+ionosphere and troposphere still in it, referred to the solve's receive instant; the carrier phase
+in cycles increasing with range; Doppler positive closing. No position is written (APPROX POSITION
+is zero on purpose).
+
+Checked two ways. Unit: GPS time to calendar at the 1980, 1999 and 2019 epochs; a write/read round
+trip of the synthetic constellation to the millimetre; both files read by **georinex** (an
+independent parser) with every satellite and field present. Real air: the 90 s wideband replay
+wrote 61 epochs x 11 satellites and 11 ephemerides; georinex read both; our solver, fed **the
+file's numbers alone** (raw code, no smoothing, no ionosphere), solved 61 of 61 epochs with a mean
+1.6 m from the receiver's own fixes. The check that matters - RTKLIB's `rnx2rtkp` on our files -
+waits for the Pi (Debian's `rtklib` package); neither Linux machine was on tonight.
+
 ## Defects found by testing (all fixed)
 
 1. Costas discriminator written as `atan2(Q, I)`: a 180-degree data flip read as a 165-degree phase error, the carrier slewed 100 Hz, every bit transition glitched. Must be `atan(Q/I)`. (Two hours.)

@@ -71,6 +71,7 @@ python python/gpsrx/qa_channel_cc.py  # C++ vs Python on the same sky, and the t
 # a recording: interleaved int16 I/Q, 1575.42 MHz, 2.048 MS/s (GPS) or 4.096 MS/s (GPS + Galileo)
 python apps/gpsrx_replay.py capture.cs16 --fix-file /somewhere/private/fix.json
 python apps/gpsrx_replay.py wide.cs16 --rate 4.096e6 --galileo 4 --fix-file /somewhere/private/fix.json
+python apps/gpsrx_replay.py capture.cs16 --rinex-file /somewhere/private/run.obs   # + run.nav: RINEX 3 for RTKLIB & co
 
 # live, any SoapySDR radio (RSPdx, RTL-SDR with --lo-search 50000), with an ephemeris file for warm starts
 python apps/gpsrx_live.py --fix-file /somewhere/private/live.json --eph-file /somewhere/private/eph.json
@@ -112,12 +113,16 @@ All of it is in `docs/TEST_REPORT.md`; the headlines, no coordinates anywhere:
 - **Galileo:** 4 satellites tracked pilot-aided, every I/NAV page CRC-clean; 7 GPS + 4 Galileo joint fix on a recording, PDOP 1.9, settled scatter 1.8 m vs 3.8 m GPS-only; **live**, 4 Galileo tracked and decoded, 426 fixes from 10 satellites, 100% valid, rms 2.2 m.
 - **Time:** the sample clock's drift reads -796 ppb; numpy-gps measured the same TCXO at 796.7 ppb two months earlier.
 - **Sensitivity** (synthetic): tracks and decodes to 34 dB-Hz. **Determinism:** two replays 0.000000 m apart.
-- **Tests:** 23 engine tests (no GNU Radio), 6 flowgraph QA; CI on Ubuntu 24.04 against the distribution's GNU Radio.
+- **RINEX 3:** observations and ephemerides written for RTKLIB and others; read back by georinex and re-solved from the file alone to 1.6 m of the receiver's own fixes.
+- **Stream integrity:** a missing code period (invisible to the loops and the solver) is caught by the bit grid moving; the receiver resyncs and its GPS time steps by exactly the lost millisecond.
+- **Tests:** 30 engine tests (no GNU Radio), 7 flowgraph QA; CI on Ubuntu 24.04 against the distribution's GNU Radio.
 
 ## What is not done
 
 - One frequency (L1/E1). No carrier-phase positioning, no RTK, no PPP, no SBAS - gnss-sdr has them.
 - The wide LO search for RTL-SDR crystals is tested on synthetic satellites, not yet on the bench.
+- The RINEX files have been read by georinex and re-solved by our own solver; RTKLIB's `rnx2rtkp`
+  on them is the check still to run.
 - Acquisition is snapshot-and-search every N seconds; a satellite rising mid-run is picked up at
   the next interval.
 - The Qt radio flowgraph's full-rate spectrum display causes overflows at 4.096 MS/s on a PC - use

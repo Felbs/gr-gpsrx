@@ -179,6 +179,12 @@ def parse_subframe(eph, sfid, words):
     if sfid == 1:
         if 2 in W:
             put("WN", ubits(W[2], 1, 10))
+            put("URA", ubits(W[2], 13, 16))              # accuracy index; health; IODC and TGD: for RINEX nav
+            put("health", ubits(W[2], 17, 22))
+        if 2 in W and 7 in W:
+            put("IODC", cat(ubits(W[2], 23, 24), 2, ubits(W[7], 1, 8), 8, False))
+        if 6 in W:
+            put("TGD", sbits(W[6], 17, 24) * 2 ** -31)
         if 8 in W:
             put("af2", sbits(W[8], 1, 8) * 2 ** -55)
             put("af1", sbits(W[8], 9, 24) * 2 ** -43)

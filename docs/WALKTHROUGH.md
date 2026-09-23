@@ -181,7 +181,9 @@ is not a measurement after the channel has lost its satellite (drop it, and anyt
 its count).
 
 *Knobs:* `smoothing`, `kf_vel_sd`, `eph_file` (warm start: every decoded orbit is kept and lent
-to a channel that has timing but has not finished its own decode).
+to a channel that has timing but has not finished its own decode), `rinex_file` (the raw
+observables and every ephemeris as RINEX 3, so RTKLIB or anyone else can process what this
+receiver measured and check it against ours).
 
 ## 5. Status and the Sky Panel
 

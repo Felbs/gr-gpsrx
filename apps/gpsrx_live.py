@@ -47,6 +47,7 @@ def main():
     ap.add_argument("--galileo", type=int, default=0, help="Galileo E1 (pilot-aided) channels; needs --rate 4.096e6")
     ap.add_argument("--interval", type=float, default=20.0)
     ap.add_argument("--fix-file", default=os.path.join(HERE, "..", "lab_local", "live.json"))
+    ap.add_argument("--rinex-file", default="", help="write RINEX 3 observations here (+ .nav with the ephemerides); a private file")
     ap.add_argument("--eph-file", default=os.path.join(HERE, "..", "lab_local", "eph_live.json"))
     ap.add_argument("--iono-file", default=os.path.join(HERE, "..", "lab_local", "iono_terms.json"))
     ap.add_argument("--log", default="")
@@ -76,7 +77,8 @@ def main():
             print(f"setting {k} = {src.read_setting(k) if hasattr(src, 'read_setting') else v}", flush=True)
         rx = gpsrx.receiver(a.rate, n_channels=a.channels, interval_s=a.interval, iono_file=a.iono_file,
                             fix_file=a.fix_file, eph_file=a.eph_file, hold=False, engine="cpp",
-                            pll_bw_narrow=a.pll_narrow, smoothing=a.smoothing, kf_vel_sd=a.kf_vel_sd, lo_search_hz=a.lo_search, pll_order=a.pll_order, n_galileo=a.galileo)
+                            pll_bw_narrow=a.pll_narrow, smoothing=a.smoothing, kf_vel_sd=a.kf_vel_sd, lo_search_hz=a.lo_search, pll_order=a.pll_order, n_galileo=a.galileo,
+                            rinex_file=a.rinex_file)
         st = gpsrx.status_sink(every_s=a.every, log_file=a.log)
         tb.connect(src, rx)
         for port in ("sky", "status", "obs", "nav", "fix"):
