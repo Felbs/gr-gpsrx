@@ -88,8 +88,9 @@ or pages, residual rms, PDOP, scatter and GPS time; **the position goes only whe
 fix file and is never printed.** Keep that file out of any repository.
 
 Knobs that matter: `--pll-narrow` (5 Hz for a fixed antenna, 15 for a car), `--kf-vel-sd`
-(0.05 static, 4 car), `--smoothing` (Hatch window, 100 epochs), `--engine python` to run the
-readable channels instead of the C++ ones (0.17x real time for eight: replay only).
+(0.05 static, 4 car), `--smoothing` (Hatch window, 100 epochs), `--mask-deg` (an elevation mask,
+applied only while five satellites remain), `--engine python` to run the readable channels
+instead of the C++ ones (0.17x real time for eight: replay only).
 
 ![the receiver on the canvas](docs/img/grc_canvas.png)
 
@@ -114,6 +115,7 @@ All of it is in `docs/TEST_REPORT.md`; the headlines, no coordinates anywhere:
 - **Time:** the sample clock's drift reads -796 ppb; numpy-gps measured the same TCXO at 796.7 ppb two months earlier.
 - **Sensitivity** (synthetic): tracks and decodes to 34 dB-Hz. **Determinism:** two replays 0.000000 m apart.
 - **RINEX 3:** observations and ephemerides written for RTKLIB and others; read back by georinex and re-solved from the file alone to 1.6 m of the receiver's own fixes.
+- **Decoded ephemerides vs the IGS broadcast file for the same day:** 11 satellites, 275 fields, every orbit and clock term identical.
 - **Scintillation:** S4 and sigma_phi per satellite per minute (noise-corrected, on 20 ms power); the July attic reads S4 0.07-0.24 - a quiet ionosphere, a little multipath.
 - **Stream integrity:** a missing code period (invisible to the loops and the solver) is caught by the bit grid moving; the receiver resyncs and its GPS time steps by exactly the lost millisecond.
 - **Tests:** 30 engine tests (no GNU Radio), 7 flowgraph QA; CI on Ubuntu 24.04 against the distribution's GNU Radio.

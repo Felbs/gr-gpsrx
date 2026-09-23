@@ -38,6 +38,7 @@ def main():
     ap.add_argument("--interval", type=float, default=20.0, help="seconds of stream between searches")
     ap.add_argument("--fix-file", default=os.path.join(HERE, "..", "lab_local", "fix_replay.json"))
     ap.add_argument("--rinex-file", default="", help="write RINEX 3 observations here (+ .nav with the ephemerides); a private file")
+    ap.add_argument("--mask-deg", type=float, default=0.0, help="elevation mask (deg): satellites below it are left out when enough remain; 0 = weighting only")
     ap.add_argument("--iono-file", default=os.path.join(HERE, "..", "lab_local", "iono_terms.json"))
     ap.add_argument("--log", default="")
     ap.add_argument("--eph-file", default="", help="warm start: ephemerides kept across runs (a private file)")
@@ -61,7 +62,7 @@ def main():
                         iono_file=a.iono_file, fix_file=a.fix_file, hold=True, eph_file=a.eph_file,
                         pll_bw_narrow=a.pll_narrow, dll_bw_narrow=a.dll_narrow, coherent_ms=a.coherent_ms,
                         smoothing=a.smoothing, kf_vel_sd=a.kf_vel_sd, lo_search_hz=a.lo_search, pll_order=a.pll_order,
-                        n_galileo=a.galileo, engine=a.engine, rinex_file=a.rinex_file)      # replay: stop time while searching
+                        n_galileo=a.galileo, engine=a.engine, rinex_file=a.rinex_file, mask_deg=a.mask_deg)      # replay: stop time while searching
     st = gpsrx.status_sink(every_s=2.0, log_file=a.log)
     tb.connect(src, to_c, rx)
     for port in ("sky", "status", "obs", "nav", "fix"):

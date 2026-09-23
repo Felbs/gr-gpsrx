@@ -230,3 +230,29 @@ def test_the_watchdog_sees_lost_samples_as_a_clock_jump():
     assert got is not None and abs(got + gap) < 1e-9, got
     assert pvt.samples_lost(fixes[0], (fixes[1][0] + 60.0, fixes[1][1] - gap, drift)) is None   # too long ago to judge
     assert pvt.samples_lost(None, dropped) is None
+
+
+def test_elevation_mask_leaves_low_satellites_out_when_enough_remain():
+    """mask_deg: a first solve gives the elevations; satellites below the mask are left out if four
+    (five with two systems) remain. Here the constellation is arranged so that one satellite sits
+    low: with a 10 degree mask it is named in `masked` and the fix still recovers the receiver."""
+    t0 = 302400.0
+    rx = llh_to_ecef(*RX_LLH)
+    ephs = constellation(t0, rx)
+    t_rx = t0 + 100.0
+    vis = [e for e in ephs if pvt.az_el(rx, pvt.sat_ecef(e, t_rx))[1] > np.radians(2)]
+    entries = [dict(prn=e["prn"], eph=e, t_sv=observe(rx, e, t_rx)) for e in vis]
+    els = {e["prn"]: np.degrees(pvt.az_el(rx, pvt.sat_ecef(e, t_rx))[1]) for e in vis}
+    low = [p for p, el in els.items() if el < 15.0]
+    fx0 = pvt.solve(entries)
+    fx = pvt.solve(entries, mask_deg=15.0)
+    assert fx0["masked"] == []
+    if low and len(entries) - len(low) >= 5:                          # five must remain: RAIM keeps a spare
+        assert sorted(int(p) for p in fx["masked"]) == sorted(low), (fx["masked"], els)
+        assert fx["n"] == len(entries) - len(low)
+    else:
+        assert fx["masked"] == [] and fx["n"] == len(entries)          # nothing to mask, or too few to spare
+    assert np.linalg.norm(np.array(fx["ecef"]) - rx) < 0.5 and fx["valid"]
+    # a mask that would leave fewer than four is ignored, not obeyed
+    fx_all = pvt.solve(entries, mask_deg=89.0)
+    assert fx_all["masked"] == [] and fx_all["n"] == len(entries)

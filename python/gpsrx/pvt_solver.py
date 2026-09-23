@@ -37,7 +37,7 @@ EPH_VALID_S = 2.0 * 3600.0      # a broadcast ephemeris is fitted for +-2 h abou
 
 class pvt_solver(gr.basic_block):
     def __init__(self, samp_rate=2.048e6, average=15, iono_file="", fix_file="", min_interval_s=1.0, eph_file="",
-                 smoothing=100, kf_vel_sd=4.0, rinex_file=""):
+                 smoothing=100, kf_vel_sd=4.0, rinex_file="", mask_deg=0.0):
         gr.basic_block.__init__(self, name="gpsrx_pvt", in_sig=None, out_sig=None)
         self.fs = float(samp_rate)
         self.average = int(average)
@@ -96,6 +96,7 @@ class pvt_solver(gr.basic_block):
         self.rinex_file = rinex_file or ""
         self.rinex = rinex.ObsWriter(self.rinex_file) if self.rinex_file else None
         self._rinex_eph = {}                # skey -> the latest complete ephemeris seen (GPS and Galileo)
+        self.mask_deg = float(mask_deg)     # elevation mask (0 = weighting only)
 
     def _samples_lost(self, fx):
         """The stream-continuity watchdog (pvt.samples_lost): did the sample clock's offset from GPS
@@ -243,7 +244,8 @@ class pvt_solver(gr.basic_block):
             self._pending = None
             try:
                 fx = pvt.fix_from_channels(chans, self.fs, iono=self.iono,
-                                           hatch=self.hatch if self.hatch_m > 1 else None, hatch_m=self.hatch_m)
+                                           hatch=self.hatch if self.hatch_m > 1 else None, hatch_m=self.hatch_m,
+                                           mask_deg=self.mask_deg)
             except Exception as e:           # a bad ephemeris must not take the flowgraph down
                 fx = None
                 err = repr(e)

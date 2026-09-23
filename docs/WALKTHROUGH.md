@@ -146,7 +146,9 @@ period count is the satellite's clock. A parity-clean *false* frame (ten words c
 it happens) is rejected by continuity: six seconds of TOW per 6000 periods, subframe ids
 stepping 1-5. One got through before that check and put a satellite's residual at 10^13 m.
 
-*Try:* connect a `Message Debug` to `nav` and watch the ephemeris fill in, field by field.
+*Try:* connect a `Message Debug` to `nav` and watch the ephemeris fill in, field by field. The
+decoded ephemerides have been checked against the IGS broadcast file for the same day, every
+field identical (TEST_REPORT.md) - a parser bug cannot hide behind a synthetic round trip.
 
 ## 4. PVT - the position
 
@@ -186,7 +188,9 @@ its count).
 *Knobs:* `smoothing`, `kf_vel_sd`, `eph_file` (warm start: every decoded orbit is kept and lent
 to a channel that has timing but has not finished its own decode), `rinex_file` (the raw
 observables and every ephemeris as RINEX 3, so RTKLIB or anyone else can process what this
-receiver measured and check it against ours).
+receiver measured and check it against ours), `mask_deg` (an elevation mask - applied only while
+five satellites remain: on a five-satellite sky, dropping the one at 8 degrees moved the fix 26 m,
+because it was worth more as redundancy than it cost in error).
 
 ## 5. Status and the Sky Panel
 

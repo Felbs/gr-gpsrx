@@ -236,13 +236,15 @@ def _solve_once(prs, iono, t_rx0, weighted=True):
     return x, A, sats, res, w, t_rx
 
 
-def solve(entries, iono=None, weights=None, raim=True):
+def solve(entries, iono=None, weights=None, raim=True, mask_deg=0.0):
     """entries: [{prn, eph, t_sv, cn0_db?}] all referred to one receive instant (SV clock transmit
     times). Weighted least squares (elevation + C/N0), then RAIM: a chi-square test on the
     weighted residuals; if it fails with six or more satellites, drop one at a time and keep the
     solution with the smallest normalised residual (gnss-sdr / RTKLIB's fault detection and
-    exclusion). Returns a fix dict: ecef, llh, rms_m, pdop, n, residuals, clock_bias_s, t_rx,
-    raim (test statistic, threshold, excluded PRN)."""
+    exclusion). mask_deg > 0: satellites below that elevation (from a first solve) are left out
+    when enough remain - low satellites carry the most multipath and troposphere error, and the
+    weighting only demotes them. Returns a fix dict: ecef, llh, rms_m, pdop, n, residuals,
+    clock_bias_s, t_rx, raim (test statistic, threshold, excluded PRN), masked."""
     prs = []
     for e in entries:
         t_gps = e["t_sv"] - clock_corr(e["eph"], e["t_sv"])              # law 1: correct AFTER assembly
@@ -257,6 +259,18 @@ def solve(entries, iono=None, weights=None, raim=True):
         return dict(x=x, A=A, sats=sats, res=res, w=w, t_rx=t_rx, stat=stat, dof=dof, prs=subset)
 
     best = run(prs)
+    masked = []
+    if mask_deg > 0 and len(prs) > 4:
+        els = [np.degrees(az_el(best["x"][:3], sp)[1]) for sp, _ in best["sats"]]
+        keep = [p for p, el in zip(prs, els) if el >= mask_deg]
+        # keep one more than the solve needs, so RAIM keeps its redundancy: masking a 5-satellite
+        # sky down to 4 moved the fix 26 m and quadrupled the scatter (Smith Point capture) -
+        # the low satellite was worth more than its error
+        n_min = 6 if 0 < sum(1 for p in keep if p[4] == "GAL") < len(keep) else 5
+        if len(keep) < len(prs) and len(keep) >= n_min:
+            masked = [("E" if p[4] == "GAL" else "") + str(p[0]) for p, el in zip(prs, els) if el < mask_deg]
+            prs = keep
+            best = run(prs)
     excluded = None
     thr = CHI2_99.get(best["dof"], 6.63 + 2.3 * max(best["dof"] - 1, 0))
     raim_pass = best["dof"] <= 0 or best["stat"] <= thr
@@ -291,6 +305,7 @@ def solve(entries, iono=None, weights=None, raim=True):
             "isb_s": float(-x[4] / C) if len(x) > 4 else None,       # GST - GPS time as this receiver sees it
             "weights": (w / w.max()).tolist(), "cov_ecef": cov.tolist(),
             "raim": {"stat": best["stat"], "threshold": thr, "pass": bool(raim_pass), "excluded": excluded},
+            "masked": masked,
             "altitude_plausible": bool(-500 < h < 9000),
             # valid: on the planet AND the residuals are consistent (or there were too few
             # satellites to tell). A detected fault that exclusion could not isolate is reported,
@@ -339,7 +354,7 @@ def hatch_smooth(entries, state, fs, s_ref, M=100, slip_m=30.0):
     return out
 
 
-def fix_from_channels(channels, fs, iono=None, hatch=None, hatch_m=100):
+def fix_from_channels(channels, fs, iono=None, hatch=None, hatch_m=100, mask_deg=0.0):
     """channels: list of {prn, eph, anchor:(epochs, tow), obs:{epochs, code_phase, sample_abs,
     carrier_hz}}. The whole path: transmit times, common instant, solve."""
     entries = []
@@ -357,7 +372,7 @@ def fix_from_channels(channels, fs, iono=None, hatch=None, hatch_m=100):
     raw = entries
     if hatch is not None and hatch_m > 1 and all("carrier_cycles" in e for e in entries):
         entries = hatch_smooth(entries, hatch, fs, s_ref, M=hatch_m)
-    fx = solve(entries, iono=iono)
+    fx = solve(entries, iono=iono, mask_deg=mask_deg)
     fx["smoothed"] = {("E" if e.get("sys") == "GAL" else "") + str(e["prn"]): e.get("smoothed", 0) for e in entries}
     fx["epoch_sample"] = float(s_ref)
     # the RAW observables at this instant, as a RINEX file wants them: the code pseudorange with

@@ -332,6 +332,32 @@ prompts without the noise correction; these are the honest ones. What the index 
 space-weather probe - a disturbed ionosphere reads S4 above 0.3 on every high satellite at once,
 which multipath never does.
 
+## The decoded ephemerides against the IGS broadcast file (22 September, night)
+
+The one check a synthetic round trip cannot give: the synthetic satellites carry messages made by
+our own encoder, so a parser that mis-scales a field would agree with itself. The RINEX nav file
+this receiver wrote from the July wideband capture was compared field by field with **BKG's IGS
+broadcast ephemeris file for that day** (`BRDC00WRD_S_20262090000_01D_MN.rnx`, assembled from the
+real-time streams), matched by PRN and time of ephemeris, both read by georinex
+(`lab_local/eph_vs_broadcast.py`). **11 ephemerides, 7 GPS + 4 Galileo, 275 fields: every orbit,
+clock, harmonic and rate term identical to the printed 12 digits**; the Galileo af0, unfolded from
+the single-frequency BGD correction, equal to the broadcast value to 0.00 ns. The only two
+differences are representation: one URA index that BKG prints as 2.8 m and we as 2^1.5 = 2.83 m,
+and one Galileo health word where the IGS file carries an E5a flag that is not in I/NAV. Found on
+the way and fixed before the comparison came clean: URA as metres by RTKLIB's convention, the
+Galileo health bits packed the RINEX way, SISA carried into the ephemeris.
+
+## An elevation mask, and what it cost (22 September, night)
+
+`mask_deg` on the PVT (`--mask-deg` on the apps): after a first solve gives the elevations,
+satellites below the mask are left out. The first version kept as few as four. On the attic
+capture every satellite sits above 21 degrees and a 10 degree mask changed nothing (0.15 m). On
+the Smith Point capture - five satellites, one at 8 degrees - **the mask took the fix from five
+satellites to four: residual rms 0 by construction, the 15-fix scatter 0.9 -> 4.6 m, and the
+mean moved 26 m.** The low satellite carried more redundancy than error. So the mask now keeps
+at least five (six with two systems) - RAIM's spare - and on that sky it leaves the low satellite
+in. The weighting already demotes low satellites; the mask is for skies with satellites to spare.
+
 ## RINEX 3 output (22 September, night)
 
 `--rinex-file run.obs` on either app (or `rinex_file` on the PVT / Receiver blocks) writes a

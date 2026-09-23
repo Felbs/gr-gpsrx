@@ -22,7 +22,7 @@ documentation: 'Every Channel''s ''obs'' and every Nav Decoder''s ''nav'' in; th
   observable is dropped, and any observable more than 2.5 s older than the newest is ignored.'
 templates: {imports: from gnuradio import gpsrx, make: 'gpsrx.pvt_solver(samp_rate=${samp_rate}, average=${average},
     iono_file=${iono_file}, fix_file=${fix_file}, eph_file=${eph_file}, smoothing=${smoothing}, kf_vel_sd=${kf_vel_sd},
-    rinex_file=${rinex_file})'}
+    rinex_file=${rinex_file}, mask_deg=${mask_deg})'}
 parameters:
 - {id: samp_rate, label: Sample rate, dtype: real, default: samp_rate}
 - {id: average, label: Average fixes, dtype: int, default: '15'}
@@ -32,6 +32,7 @@ parameters:
 - {id: smoothing, label: 'Carrier smoothing (epochs, 0 = off)', dtype: int, default: '100'}
 - {id: kf_vel_sd, label: 'Kalman velocity noise (m/s/sqrt(s), 0 = off)', dtype: real, default: '4.0'}
 - {id: rinex_file, label: RINEX file (obs; + .nav), dtype: file_save, default: '''''', hide: part}
+- {id: mask_deg, label: 'Elevation mask (deg, 0 = weighting only)', dtype: real, default: '0.0', hide: part}
 inputs:
 - {domain: message, id: obs}
 - {domain: message, id: nav}

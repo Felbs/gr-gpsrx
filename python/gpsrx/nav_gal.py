@@ -154,7 +154,9 @@ def parse_word(page):
         f["ai2"] = _s(w, 28, 14) * 2 ** -15
         f["BGD_E1E5a"] = _s(w, 47, 10) * 2 ** -32
         f["BGD_E1E5b"] = _s(w, 57, 10) * 2 ** -32
+        f["E5bHS"] = _u(w, 67, 2)
         f["E1BHS"] = _u(w, 69, 2)
+        f["E5bDVS"] = _u(w, 71, 1)
         f["E1BDVS"] = _u(w, 72, 1)
         f["WN"] = _u(w, 73, 12)
         f["TOW"] = _u(w, 85, 20)
@@ -174,7 +176,7 @@ def parse_word(page):
 
 
 EPH_WORDS = {1: ("toe", "M0", "e", "sqrtA"), 2: ("Omega0", "i0", "omega", "IDOT"),
-             3: ("OmegaDot", "dn", "Cuc", "Cus", "Crc", "Crs"), 4: ("toc", "af0", "af1", "af2", "Cic", "Cis")}
+             3: ("OmegaDot", "dn", "Cuc", "Cus", "Crc", "Crs", "SISA"), 4: ("toc", "af0", "af1", "af2", "Cic", "Cis")}
 
 
 class INavDecoder:
@@ -277,7 +279,7 @@ class INavDecoder:
                     e["bgd_folded"] = True
                 self.eph = e
         elif wt == 5:
-            for k in ("BGD_E1E5a", "BGD_E1E5b", "E1BHS", "E1BDVS", "ai0", "ai1", "ai2"):
+            for k in ("BGD_E1E5a", "BGD_E1E5b", "E1BHS", "E1BDVS", "E5bHS", "E5bDVS", "ai0", "ai1", "ai2"):
                 self.extras[k] = f[k]
             if "IODnav" in self.eph and "BGD_E1E5b" in f and not self.eph.get("bgd_folded"):
                 self.eph["af0"] -= f["BGD_E1E5b"]

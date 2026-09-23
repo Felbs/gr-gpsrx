@@ -157,14 +157,19 @@ def _write_gal(w, e):
     w(f"    {_e19(e['toe'])}{_e19(e['Cic'])}{_e19(e['Omega0'])}{_e19(e['Cis'])}\n")
     w(f"    {_e19(e['i0'])}{_e19(e['Crc'])}{_e19(e['omega'])}{_e19(e['OmegaDot'])}\n")
     w(f"    {_e19(e['IDOT'])}{_e19(513)}{_e19(week)}{_e19(0)}\n")                   # data source 513 = I/NAV E1-B, af0 wrt E5b/E1
-    w(f"    {_e19(_sisa_m(e.get('SISA', 255)))}{_e19(e.get('E1BHS', 0))}{_e19(e.get('BGD_E1E5a', 0.0))}{_e19(e.get('BGD_E1E5b', 0.0))}\n")
+    # health, RINEX packing: E1-B DVS bit 0, E1-B HS bits 1-2, E5b DVS bit 3, E5b HS bits 4-5 (E5a: not in I/NAV)
+    health = (int(e.get("E1BDVS", 0)) | (int(e.get("E1BHS", 0)) << 1) | (int(e.get("E5bDVS", 0)) << 3) | (int(e.get("E5bHS", 0)) << 4))
+    w(f"    {_e19(_sisa_m(e.get('SISA', 255)))}{_e19(health)}{_e19(e.get('BGD_E1E5a', 0.0))}{_e19(e.get('BGD_E1E5b', 0.0))}\n")
     w(f"    {_e19(e['toe'] - 3600.0)}{_e19(0)}\n")
 
 
 def _ura_m(idx):
-    table = [2.4, 3.4, 4.85, 6.85, 9.65, 13.65, 24.0, 48.0, 96.0, 192.0, 384.0, 768.0, 1536.0, 3072.0, 6144.0]
+    """The URA index as metres, RTKLIB's (and BKG's BNC's) convention 2^(1 + N/2) for N <= 6, 2^(N - 2)
+    above - what the IGS broadcast files carry, so the field compares equal (checked against BRDC)."""
     i = int(idx)
-    return table[i] if 0 <= i < len(table) else -1.0
+    if i < 0 or i > 15:
+        return -1.0
+    return float(2 ** (1 + i / 2.0)) if i <= 6 else float(2 ** (i - 2))
 
 
 def _sisa_m(idx):
