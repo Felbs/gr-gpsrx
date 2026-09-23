@@ -12,11 +12,13 @@
 > apart. **Galileo E1** is in - pilot-aided tracking on E1-C with I/NAV decoding, C++ and Python
 > - a joint GPS + Galileo fix is quieter than GPS alone on the same samples (1.8 m vs 3.8 m
 > settled scatter), and it runs **live**: 8 minutes on the RSPdx, four Galileo satellites tracked
-> and decoded from the air, 426 fixes from 7 GPS + 3 Galileo, 100% valid, rms 2.2 m, 0.6 m scatter. Replay is deterministic to the millimetre. Every fix carries GPS time, the
-> sample clock's drift, and the sample of the next whole second (a 1PPS on the sample clock).
-> Eight C++ channels run at 15x real time on a PC and 13x on a Raspberry Pi 5. Windows
-> (radioconda + MSVC), Linux and the Pi build from the same CMake; CI builds against Ubuntu's
-> GNU Radio and runs the QA.
+> and decoded from the air, 426 fixes from 7 GPS + 3 Galileo, 100% valid, rms 2.2 m, 0.6 m
+> scatter. Replay is deterministic to the millimetre. Every fix carries GPS time, the sample
+> clock's drift, and the sample of the next whole second (a 1PPS on the sample clock); the
+> observables and ephemerides go out as RINEX 3, and the decoded ephemerides match the IGS
+> broadcast file field for field. Eight C++ channels run at 15x real time on a PC and 13x on a
+> Raspberry Pi 5. Windows (radioconda + MSVC), Linux and the Pi build from the same CMake; CI
+> builds against Ubuntu's GNU Radio and runs the QA.
 
 **Start with [`docs/WALKTHROUGH.md`](docs/WALKTHROUGH.md)** - the receiver one block at a time, with
 figures made from synthetic satellites you can regenerate. Then `docs/DESIGN.md` (the receiver),
@@ -43,9 +45,9 @@ is gnss-sdr. This is the textbook, in the tool people use - and on L1 it now mea
 |---|---|---|
 | codes | `cacode.py`, `gale1.py` | IS-GPS-200 C/A generator checked against the published chips; Galileo E1-B/E1-C memory codes (gnss-sdr's table) with the BOC(1,1) subcarrier |
 | Acquisition | `acquire.py`, block in `acquisition.py` | parallel code-phase search, coherent x non-coherent, Doppler refined on 100 ms; finds the LO offset of a cheap crystal first (`lo_search_hz`); assigns satellites to channel slots; one block per system |
-| Channel | `track.py`, block in `channel.py`; C++ twin `lib/channel_cc_impl.cc` | one satellite: wipe-off, three correlators (four for a pilot signal), Costas PLL, early-late DLL, one code period per step; **counts code epochs**. Two stages: wide 1 ms loops, then bit sync (or secondary-code sync on the Galileo pilot) and whole-bit coherent windows with narrow third-order loops. Same ports, tag and messages in both languages; the Python one is for reading, the C++ one for the radio |
+| Channel | `track.py`, block in `channel.py`; C++ twin `lib/channel_cc_impl.cc` | one satellite: wipe-off, three correlators (four for a pilot signal), Costas PLL, early-late DLL, one code period per step; **counts code epochs**. Two stages: wide 1 ms loops, then bit sync (or secondary-code sync on the Galileo pilot) and whole-bit coherent windows with narrow third-order loops; keeps watching its bit grid (a dropped radio buffer shows up there and nowhere else) and reports S4 / sigma_phi once a minute. Same ports, tag and messages in both languages; the Python one is for reading, the C++ one for the radio |
 | Nav decoder | `nav.py`, `nav_gal.py`, block in `nav_decoder.py` | GPS: preamble/parity framing in either polarity, subframes 1-4 -> ephemeris and Klobuchar, false frames rejected by continuity. Galileo: streaming I/NAV (Viterbi, deinterleave, CRC-24Q), ephemeris, GGTO. Both: **timing anchors** (which code period a subframe/page began on, and its TOW) |
-| PVT | `pvt.py`, block in `pvt_solver.py` | orbit, SV clock, Sagnac, troposphere, ionosphere; carrier-smoothed pseudoranges; weighted least squares with an inter-system clock unknown; RAIM; a Kalman filter on the fixes; the timing product; warm start from kept ephemerides |
+| PVT | `pvt.py`, block in `pvt_solver.py`; `rinex.py` | orbit, SV clock, Sagnac, troposphere, ionosphere; carrier-smoothed pseudoranges; weighted least squares with an inter-system clock unknown; RAIM; an elevation mask that keeps a spare; a Kalman filter on the fixes; the timing product; the stream watchdog; warm start from kept ephemerides; RINEX 3 observations and ephemerides on request |
 | Status, Sky Panel | `status_sink.py`, `sky_panel.py` (Qt) | the receiver's state, quality only - never the position (the panel's `private` view hides the PRNs and turns the sky) |
 | Receiver | `receiver.py` | the whole chain as one hier block (`n_channels` GPS + `n_galileo` Galileo), every inner message port exposed |
 | synthetic sky | `synth.py`, `navgen.py` | any satellites, Dopplers, C/N0s, Doppler rates, real nav messages with parity - so every test runs with no capture and no radio |
@@ -61,7 +63,7 @@ sample and the solve once per stream second, two replays of the same file differ
 
 ```
 pip install numpy pytest pyyaml
-NUMPY_GPS_DIR=/path/to/numpy-gps pytest -q tests                  # 23 engine tests, ~1 min, no GNU Radio
+NUMPY_GPS_DIR=/path/to/numpy-gps pytest -q tests                  # 32 engine tests, ~1 min, no GNU Radio
 python python/gpsrx/qa_channel.py ; python python/gpsrx/qa_receiver.py    # the blocks, under GNU Radio
 
 util\build_win.cmd                    # Windows: the C++ Channel (radioconda + VS Build Tools)
@@ -98,11 +100,12 @@ instead of the C++ ones (0.17x real time for eight: replay only).
 
 ![the Sky Panel on a GPS + Galileo replay, private view](docs/img/sky_panel_galileo_replay_private.png)
 
-*The Sky Panel on the wideband recording with four Galileo channels (`E--`) beside seven GPS:
-11 satellites in the fix. The panel's private view: a named constellation at a known time can
-be inverted to a rough position, so for screenshots the PRN numbers are hidden and the sky is
-turned by an undisclosed angle. Everything else in the picture is as it ran; dot colour is
-lock quality. The GPS-only version is `docs/img/sky_panel_private.png`.*
+*The Sky Panel on the wideband recording with four Galileo channels (`E--`) beside eight GPS:
+12 satellites in the fix, and each channel's S4 after its first minute. The panel's private
+view: a named constellation at a known time can be inverted to a rough position, so for
+screenshots the PRN numbers are hidden and the sky is turned by an undisclosed angle.
+Everything else in the picture is as it ran; dot colour is lock quality. The GPS-only version
+is `docs/img/sky_panel_private.png`.*
 
 ## Measured
 
@@ -118,7 +121,7 @@ All of it is in `docs/TEST_REPORT.md`; the headlines, no coordinates anywhere:
 - **Decoded ephemerides vs the IGS broadcast file for the same day:** 11 satellites, 275 fields, every orbit and clock term identical.
 - **Scintillation:** S4 and sigma_phi per satellite per minute (noise-corrected, on 20 ms power); the July attic reads S4 0.07-0.24 - a quiet ionosphere, a little multipath.
 - **Stream integrity:** a missing code period (invisible to the loops and the solver) is caught by the bit grid moving; the receiver resyncs and its GPS time steps by exactly the lost millisecond.
-- **Tests:** 30 engine tests (no GNU Radio), 7 flowgraph QA; CI on Ubuntu 24.04 against the distribution's GNU Radio.
+- **Tests:** 32 engine tests (no GNU Radio), 7 flowgraph QA; CI on Ubuntu 24.04 against the distribution's GNU Radio.
 
 ## What is not done
 
@@ -129,8 +132,8 @@ All of it is in `docs/TEST_REPORT.md`; the headlines, no coordinates anywhere:
 - Acquisition is snapshot-and-search every N seconds; a satellite rising mid-run is picked up at
   the next interval.
 - The Qt radio flowgraph's full-rate spectrum display causes overflows at 4.096 MS/s on a PC - use
-  `apps/gpsrx_live.py` for Galileo live. (A dropped block is now caught: the channels watch their
-  bit grid and report a `slip`, PVT drops the anchors, the decoders re-anchor - about 10 s of no fix.)
+  `apps/gpsrx_live.py` for Galileo live. A dropped block is caught (a `slip`), but it costs about
+  10 s without a fix while the decoders re-anchor.
 - GLONASS, BeiDou: not started.
 
 ## Licence
