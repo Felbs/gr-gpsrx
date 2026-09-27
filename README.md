@@ -68,6 +68,7 @@ python python/gpsrx/qa_channel.py ; python python/gpsrx/qa_receiver.py    # the 
 
 util\build_win.cmd                    # Windows: the C++ Channel (radioconda + VS Build Tools)
 mkdir build && cd build && cmake .. && make && cd ..     # Linux / Raspberry Pi: as any OOT module
+#   Arch/Omarchy: cmake .. -DCMAKE_INSTALL_PREFIX=/usr   (Arch does not look in /usr/local; needs pybind11 + gnuradio-companion)
 python python/gpsrx/qa_channel_cc.py  # C++ vs Python on the same sky, and the throughput gate
 
 # a recording: interleaved int16 I/Q, 1575.42 MHz, 2.048 MS/s (GPS) or 4.096 MS/s (GPS + Galileo)
