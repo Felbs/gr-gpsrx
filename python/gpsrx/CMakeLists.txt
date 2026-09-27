@@ -19,7 +19,12 @@ add_subdirectory(bindings)
 ########################################################################
 # Install python sources
 ########################################################################
-gr_python_install(FILES __init__.py DESTINATION ${GR_PYTHON_DIR}/gnuradio/gpsrx)
+# Every engine module except the qa_* tests, plus the Galileo E1 code table.
+file(GLOB GPSRX_PY_FILES ${CMAKE_CURRENT_SOURCE_DIR}/*.py)
+list(FILTER GPSRX_PY_FILES EXCLUDE REGEX "qa_.*\\.py$")
+gr_python_install(FILES ${GPSRX_PY_FILES} DESTINATION ${GR_PYTHON_DIR}/gnuradio/gpsrx)
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/data/galileo_e1_codes.npz
+        DESTINATION ${GR_PYTHON_DIR}/gnuradio/gpsrx/data)
 
 ########################################################################
 # Handle the unit tests

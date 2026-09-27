@@ -234,6 +234,41 @@ blocks:
     - 12
     rotation: 0
     state: enabled
+- name: bias_t
+  id: parameter
+  parameters:
+    label: 'Bias-T (1 = active antenna; SDRplay: Antenna B only)'
+    type: intx
+    value: '0'
+    short_id: b
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 1440
+    - 100
+    rotation: 0
+    state: enabled
+- name: bias_t_snippet
+  id: snippet
+  parameters:
+    alias: ''
+    code: "# bias-T is a DEVICE-level SoapySDR setting; gr-soapy's per-channel \"\
+      settings\" reject it\nif bias_t:\n    self.src.write_setting(\"biasT_ctrl\"\
+      , \"true\")"
+    comment: ''
+    priority: '0'
+    section: main_after_init
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 24
+    - 420
+    rotation: 0
+    state: enabled
 connections:
 - - src
   - '0'
